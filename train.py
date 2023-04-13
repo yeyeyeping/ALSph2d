@@ -227,7 +227,7 @@ def al_cycle(args, logger):
         if len(dataloader["unlabeled"].sampler.indices) == 0:
             break
     save_query_plot(args.output_dir, labeled_percent, dice_list)
-
+    writer.close()
 
 if __name__ == "__main__":
     import torch.backends.cudnn as cudnn

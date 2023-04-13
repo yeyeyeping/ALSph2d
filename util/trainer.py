@@ -9,8 +9,8 @@ from util import label_smooth
 from scipy.ndimage import zoom
 from util.taalhelper import *
 import util.jitfunc as f
-from util import SPACING32
 
+SPACING32: float = np.spacing(1, dtype=np.float32)
 
 class NoInfSurfaceDistanceMetric(SurfaceDistanceMetric):
 

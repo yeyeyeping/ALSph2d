@@ -1,7 +1,6 @@
 import scipy.ndimage as ndimage
 import numpy as np
 
-SPACING32: float = np.spacing(1, dtype=np.float32)
 
 
 def build_strategy(strategy: str):

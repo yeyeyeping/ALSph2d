@@ -2,9 +2,10 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 import util.jitfunc as f
-from util import SPACING32
+
 from util.taalhelper import augments_forward
 
+SPACING32: float = np.spacing(1, dtype=np.float32)
 
 class LimitSortedList(object):
 
