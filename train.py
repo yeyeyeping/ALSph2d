@@ -161,18 +161,12 @@ def al_cycle(args, logger):
         f'Initial configuration: len(du): {len(dataloader["unlabeled"].sampler.indices)} '
         f'len(dl): {len(dataloader["labeled"].sampler.indices)} ')
 
-    # initialize model
-    model = build_model(args.model).to(args.device)
-    model.apply(lambda param: initialize_weights(param, 1))
-
-    criterion = DiceCELoss(include_background=True, softmax=False)
-    optimizer = Adam(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    sched = MultiStepLR(optimizer, milestones=[0.4 * args.epoch, 0.7 * args.epoch], gamma=0.5)
-
     strategy_type, trainer_type = build_strategy(args.query_strategy)
-    query_strategy = strategy_type(dataloader["unlabeled"], dataloader["labeled"], model=model,
+    trainer = trainer_type(args, logger, writer, args.trainer_param)
+
+    query_strategy = strategy_type(dataloader["unlabeled"], dataloader["labeled"], trainer=trainer,
                                    **args.query_strategy_param)
-    trainer = trainer_type(model, sched, logger, writer, criterion, args.trainer_param)
+
     loss, iou, dice = trainer.train(dataloader["labeled"], args.epoch, -1)
     logger.info(
         f"initial model TRAIN | avg_loss: {loss} Dice:{dice} Mean IoU: {iou} ")
@@ -207,8 +201,7 @@ def al_cycle(args, logger):
         if args.forget_weight:
             logger.info("forget weight")
             # reset model
-            model = build_model(args.model).to(args.device)
-            model.apply(lambda param: initialize_weights(param, p=1 - cycle / total_cycle))
+            trainer.forget_weight(cycle, total_cycle)
 
         # retrain model on updated dataloader
         loss, iou, dice = trainer.train(dataloader["labeled"], args.epoch, cycle)
@@ -223,11 +216,13 @@ def al_cycle(args, logger):
         dice_list.append(np.round(dice, 4))
 
         # save checkpoint
-        torch.save(model.state_dict(), f"{args.checkpoint}/cycle={cycle}&dice={dice:.3f}&time={time.time()}.pth")
+        torch.save(trainer.model.state_dict(), f"{args.checkpoint}/cycle={cycle}&dice={dice:.3f}&time={time.time()}.pth")
         if len(dataloader["unlabeled"].sampler.indices) == 0:
             break
     save_query_plot(args.output_dir, labeled_percent, dice_list)
+    writer.flush()
     writer.close()
+
 
 if __name__ == "__main__":
     import torch.backends.cudnn as cudnn

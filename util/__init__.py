@@ -1,20 +1,27 @@
 import scipy.ndimage as ndimage
 import numpy as np
 
+SPACING32: float = np.spacing(1, dtype=np.float32)
 
 
 def build_strategy(strategy: str):
     import util.query_strategy as qs
-    from util.trainer import BaseTrainer, TTATrainer
-    from util.query_strategy import TAAL
+    from util.trainer import BaseTrainer, TTATrainer, BALDTrainer,LearningLossTrainer
+    from util.query_strategy import TAAL, BALD, LossPredictionQuery
 
     if strategy in qs.__dict__:
         strategy = qs.__dict__[strategy]
     else:
         raise NotImplementedError
+    trainer = BaseTrainer
+
     if strategy == TAAL:
-        return strategy, TTATrainer
-    return strategy, BaseTrainer
+        trainer = TTATrainer
+    elif strategy == BALD:
+        trainer = BALDTrainer
+    elif strategy == LossPredictionQuery:
+        trainer = LearningLossTrainer
+    return strategy, trainer
 
 
 def get_largest_k_components(image, k=1):

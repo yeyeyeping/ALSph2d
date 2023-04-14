@@ -1,3 +1,5 @@
+import warnings
+
 import torch
 from monai.metrics import Cumulative, DiceMetric, MeanIoU, SurfaceDistanceMetric
 from tqdm import tqdm
@@ -5,12 +7,18 @@ import time
 from monai.networks.utils import one_hot
 from torchvision.utils import make_grid
 import numpy as np
+from model.LossPredictionModule import LossPredLoss
+from model.Unet import UNetWithFeature
 from util import label_smooth
 from scipy.ndimage import zoom
 from util.taalhelper import *
 import util.jitfunc as f
+from util import SPACING32
+from monai.losses import DiceCELoss
+from torch.optim import Adam
+from torch.optim.lr_scheduler import MultiStepLR
+from model import build_model, initialize_weights, UNetWithDropout
 
-SPACING32: float = np.spacing(1, dtype=np.float32)
 
 class NoInfSurfaceDistanceMetric(SurfaceDistanceMetric):
 
@@ -20,17 +28,38 @@ class NoInfSurfaceDistanceMetric(SurfaceDistanceMetric):
 
 
 class BaseTrainer(object):
-    def __init__(self, model, scheduler, logger, writer, criterion, param: dict = None) -> None:
+    def __init__(self, args, logger, writer, param: dict = None) -> None:
         super().__init__()
-        self.model = model
-        self.scheduler = scheduler
-        self.optimizer = scheduler.optimizer
-        self.device = next(iter(model.parameters())).device
-        self.init_metric()
+        self.args = args
         self.logger = logger
         self.writer = writer
-        self.criterion = criterion
+
         self.additional_param = param
+        self.model = self.build_model()
+
+        self.optimizer = self.build_optimizer()
+        self.scheduler = self.build_sched(self.optimizer)
+
+        self.criterion = self.build_criterion()
+
+        self.init_metric()
+
+    def build_criterion(self):
+        return DiceCELoss(include_background=True, softmax=False)
+
+    def build_optimizer(self):
+        return Adam(self.model.parameters(), lr=self.args.lr, weight_decay=self.args.weight_decay)
+
+    def build_sched(self, optimizer):
+        return MultiStepLR(optimizer, milestones=[0.4 * self.args.epoch, 0.7 * self.args.epoch], gamma=0.5)
+
+    def build_model(self):
+        model = build_model(self.args.model).to(self.args.device)
+        model.apply(lambda param: initialize_weights(param, 1))
+        return model
+
+    def forget_weight(self, cycle, total_cycle):
+        self.model.apply(lambda param: initialize_weights(param, p=1 - cycle / total_cycle))
 
     def writer_scalar(self, niter, cycle, train_loss, mIoU, dice, stage, assd: int = None, prefix: str = None):
         prefix = prefix + "/" if prefix is not None else ""
@@ -57,9 +86,9 @@ class BaseTrainer(object):
         self.dice_metric, self.meaniou_metric, self.assd_metric = DiceMetric(include_background=False), MeanIoU(
             include_background=False), NoInfSurfaceDistanceMetric(include_background=False, symmetric=True)
 
-    def batch_forward(self, img, mask):
+    def batch_forward(self, img, onehot_mask):
         output = self.model(img).softmax(dim=1)
-        loss = self.criterion(output, mask)
+        loss = self.criterion(output, onehot_mask)
         return output, loss
 
     def train(self, dataloader, epochs, cycle):
@@ -70,7 +99,7 @@ class BaseTrainer(object):
             self.model.train()
             for btidx, (img, mask) in enumerate(tbar):
                 self.data_time.append(time.time() - tlc)
-                img, mask = img.to(self.device), mask.to(self.device)
+                img, mask = img.to(self.args.device), mask.to(self.args.device)
                 mask_onehot = one_hot(mask, 2)
 
                 output, loss = self.batch_forward(img, mask_onehot)
@@ -127,8 +156,11 @@ class BaseTrainer(object):
 
                 batch_slices = zoom(batch_slices, (1, 1, input_size / h, input_size / w), order=0,
                                     mode='nearest')
-                batch_slices = torch.from_numpy(batch_slices).to(self.device)
-                batch_pred_mask = self.model(batch_slices).argmax(dim=1).cpu()
+                batch_slices = torch.from_numpy(batch_slices).to(self.args.device)
+                output = self.model(batch_slices)
+                if isinstance(output, tuple):
+                    output = output[0]
+                batch_pred_mask = output.argmax(dim=1).cpu()
                 batch_pred_mask = zoom(batch_pred_mask, (1, h / input_size, w / input_size), order=0,
                                        mode='nearest')
                 pred_volume = np.concatenate([pred_volume, batch_pred_mask])
@@ -157,10 +189,44 @@ class BaseTrainer(object):
 
 class TTATrainer(BaseTrainer):
 
-    def batch_forward(self, img, mask):
-        output, dice_loss = super().batch_forward(img, mask)
+    def batch_forward(self, img, onehot_mask):
+        output, dice_loss = super().batch_forward(img, onehot_mask)
         all_output = augments_forward(img, self.model, output, int(self.additional_param["num_augmentations"]),
-                                      self.device)
+                                      self.args.device)
         consistency_loss = torch.mean(f.JSD(all_output, SPACING32))
         loss = (consistency_loss + dice_loss) / 2
         return output, loss
+
+
+class BALDTrainer(BaseTrainer):
+    def build_model(self):
+        self.logger.warn(f"BALD Only support model UnetWithDropout,args.model= {self.args.model} has been ignored")
+        return UNetWithDropout(1, 2, 16).to(self.args.device)
+
+
+class LearningLossTrainer(BaseTrainer):
+    def build_model(self):
+        from model.LossPredictionModule import LossPredModule
+        self.loss_predition_module = LossPredModule().to(self.args.device)
+        return UNetWithFeature(1, 2, 16).to(self.args.device)
+
+    def build_optimizer(self):
+        import itertools
+        return Adam(
+            params=itertools.chain(self.model.parameters(), self.loss_predition_module.parameters()),
+            lr=self.args.lr,
+            weight_decay=self.args.weight_decay)
+
+    def build_criterion(self):
+        from monai.losses import DiceLoss
+        return DiceLoss(include_background=True, softmax=False, reduction="none")
+
+    def batch_forward(self, img, onehot_mask):
+        self.loss_predition_module.train()
+        output, features = self.model(img)
+        output = output.softmax(dim=1)
+
+        dice_loss = torch.mean(self.criterion(output, onehot_mask), dim=1).view((img.shape[0],))
+        pred_loss = self.loss_predition_module(features).view(img.shape[0], )
+        loss_pred_loss = LossPredLoss(pred_loss, dice_loss)
+        return output, (torch.mean(dice_loss) + loss_pred_loss) / 2

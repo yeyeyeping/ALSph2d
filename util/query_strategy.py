@@ -2,10 +2,9 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 import util.jitfunc as f
-
+from util import SPACING32
 from util.taalhelper import augments_forward
 
-SPACING32: float = np.spacing(1, dtype=np.float32)
 
 class LimitSortedList(object):
 
@@ -63,9 +62,10 @@ class RandomQuery(QueryStrategy):
 class SimpleQueryStrategy(QueryStrategy):
     def __init__(self, unlabeled_dataloader: DataLoader, labeled_dataloader: DataLoader, **kwargs) -> None:
         super().__init__(unlabeled_dataloader, labeled_dataloader)
-        assert "model" in kwargs
+        assert "trainer" in kwargs
         assert "descending" in kwargs
-        self.model = kwargs["model"]
+        self.trainer = kwargs["trainer"]
+        self.model = kwargs["trainer"].model
         self.descending = kwargs["descending"]
 
     def compute_score(self, model_output):
@@ -78,12 +78,12 @@ class SimpleQueryStrategy(QueryStrategy):
         q = LimitSortedList(limit=query_num, descending=self.descending)
         for batch_idx, (img, _) in enumerate(self.unlabeled_dataloader):
             img = img.to(device)
-            output = self.model(img).softmax(dim=1)
+            output = self.model(img)
             score = self.compute_score(output).cpu()
-            assert score.shape[0] == img.shape[0], "shape dismatch!"
+            assert score.shape[0] == img.shape[0], "shape mismatch!"
             offset = batch_idx * self.unlabeled_dataloader.batch_size
-            idx_entopy = torch.column_stack([torch.arange(offset, offset + img.shape[0]), score]).data
-            q.extend(idx_entopy)
+            idx_entropy = torch.column_stack([torch.arange(offset, offset + img.shape[0]), score]).data
+            q.extend(idx_entropy)
         return q.data
 
 
@@ -93,6 +93,7 @@ class MaxEntropy(SimpleQueryStrategy):
         super().__init__(unlabeled_dataloader, labeled_dataloader, descending=True, **kwargs)
 
     def compute_score(self, model_output):
+        model_output = model_output.softmax(dim=1)
         return f.max_entropy(model_output, SPACING32)
 
 
@@ -102,6 +103,7 @@ class MarginConfidence(SimpleQueryStrategy):
         super().__init__(unlabeled_dataloader, labeled_dataloader, descending=False, **kwargs)
 
     def compute_score(self, model_output):
+        model_output = model_output.softmax(dim=1)
         return f.margin_confidence(model_output)
 
 
@@ -110,6 +112,7 @@ class LeastConfidence(SimpleQueryStrategy):
         super().__init__(unlabeled_dataloader, labeled_dataloader, descending=False, **kwargs)
 
     def compute_score(self, model_output):
+        model_output = model_output.softmax(dim=1)
         output_max = torch.max(model_output, dim=1)[0]
         return output_max.mean(dim=(-2, -1))
 
@@ -117,8 +120,8 @@ class LeastConfidence(SimpleQueryStrategy):
 class TAAL(QueryStrategy):
     def __init__(self, unlabeled_dataloader: DataLoader, labeled_dataloader: DataLoader, **kwargs) -> None:
         super().__init__(unlabeled_dataloader, labeled_dataloader)
-        assert "model" in kwargs
-        self.model = kwargs["model"]
+        assert "trainer" in kwargs
+        self.model = kwargs["trainer"].model
         self.num_augmentations = int(kwargs.get("num_augmentations", 10))
 
     @torch.no_grad()
@@ -131,10 +134,10 @@ class TAAL(QueryStrategy):
             output = self.model(img).softmax(dim=1)
             aug_out = augments_forward(img, self.model, output, self.num_augmentations, device)
             score = f.JSD(aug_out, SPACING32).cpu()
-            assert score.shape[0] == img.shape[0], "shape dismatch!"
+            assert score.shape[0] == img.shape[0], "shape mismatch!"
             offset = batch_idx * self.unlabeled_dataloader.batch_size
-            idx_entopy = torch.column_stack([torch.arange(offset, offset + img.shape[0]), score]).data
-            q.extend(idx_entopy)
+            idx_entropy = torch.column_stack([torch.arange(offset, offset + img.shape[0]), score]).data
+            q.extend(idx_entropy)
 
         return q.data
 
@@ -142,8 +145,8 @@ class TAAL(QueryStrategy):
 class BALD(QueryStrategy):
     def __init__(self, unlabeled_dataloader: DataLoader, labeled_dataloader: DataLoader, **kwargs) -> None:
         super().__init__(unlabeled_dataloader, labeled_dataloader)
-        assert "model" in kwargs
-        self.model = kwargs["model"]
+        assert "trainer" in kwargs
+        self.model = kwargs["trainer"].model
         self.dropout_round = int(kwargs.get("round", 10))
         assert hasattr(self.model, "dropout_switch")
 
@@ -153,17 +156,29 @@ class BALD(QueryStrategy):
         self.model.dropout_switch(True)
 
         device = next(iter(self.model.parameters())).device
-        q = LimitSortedList(limit=query_num, descending=False)
+        q = LimitSortedList(limit=query_num, descending=True)
         for batch_idx, (img, _) in enumerate(self.unlabeled_dataloader):
             out = torch.empty(self.dropout_round, img.shape[0], 2, img.shape[-2], img.shape[-1], device=device)
-            for round in range(self.dropout_round):
+            for round_ in range(self.dropout_round):
                 img = img.to(device)
                 output = self.model(img).softmax(dim=1)
-                out[round] = output
-            score = f.mutual_information(out, SPACING32).cpu()
-            assert score.shape[0] == img.shape[0], "shape dismatch!"
+                out[round_] = output
+            score = f.JSD(out, SPACING32).cpu()
+            assert score.shape[0] == img.shape[0], "shape mismatch!"
             offset = batch_idx * self.unlabeled_dataloader.batch_size
-            idx_entopy = torch.column_stack([torch.arange(offset, offset + img.shape[0]), score]).data
-            q.extend(idx_entopy)
+            idx_entropy = torch.column_stack([torch.arange(offset, offset + img.shape[0]), score]).data
+            q.extend(idx_entropy)
 
         return q.data
+
+
+class LossPredictionQuery(SimpleQueryStrategy):
+
+    def __init__(self, unlabeled_dataloader: DataLoader, labeled_dataloader: DataLoader, **kwargs) -> None:
+        super().__init__(unlabeled_dataloader, labeled_dataloader, descending=True, **kwargs)
+
+    def compute_score(self, model_output):
+        self.trainer.loss_predition_module.eval()
+        _, features = model_output
+        pred_loss = self.trainer.loss_predition_module(features)
+        return pred_loss
