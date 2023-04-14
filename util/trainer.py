@@ -230,3 +230,14 @@ class LearningLossTrainer(BaseTrainer):
         pred_loss = self.loss_predition_module(features).view(img.shape[0], )
         loss_pred_loss = LossPredLoss(pred_loss, dice_loss)
         return output, (torch.mean(dice_loss) + loss_pred_loss) / 2
+
+
+class CoresetTrainer(BaseTrainer):
+    def build_model(self):
+        return UNetWithFeature(1, 2, 16).to(self.args.device)
+
+    def batch_forward(self, img, onehot_mask):
+        output, _ = self.model(img)
+        output = output.softmax(1)
+        loss = self.criterion(output, onehot_mask)
+        return output, loss

@@ -45,7 +45,7 @@ def parse_arg():
     parser.add_argument("--input-size", type=int, default=416)
     parser.add_argument("--forget-weight", type=bool, default=False)
     parser.add_argument("--query-strategy", type=str, default="LeastConfidence")
-    parser.add_argument("--query-strategy-param", type=dict, default={"round": 10})
+    parser.add_argument("--query-strategy-param", type=dict, default={"round": 10,"pool_size":8})
     parser.add_argument("--trainer-param", type=dict, default={"num_augmentations": 3})
     args = parser.parse_args()
     if not os.path.exists(args.output_dir):

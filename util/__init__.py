@@ -6,8 +6,8 @@ SPACING32: float = np.spacing(1, dtype=np.float32)
 
 def build_strategy(strategy: str):
     import util.query_strategy as qs
-    from util.trainer import BaseTrainer, TTATrainer, BALDTrainer,LearningLossTrainer
-    from util.query_strategy import TAAL, BALD, LossPredictionQuery
+    from util.trainer import BaseTrainer, TTATrainer, BALDTrainer, LearningLossTrainer, CoresetTrainer
+    from util.query_strategy import TAAL, BALD, LossPredictionQuery, CoresetQuery
 
     if strategy in qs.__dict__:
         strategy = qs.__dict__[strategy]
@@ -21,6 +21,8 @@ def build_strategy(strategy: str):
         trainer = BALDTrainer
     elif strategy == LossPredictionQuery:
         trainer = LearningLossTrainer
+    elif strategy == CoresetQuery:
+        trainer = CoresetTrainer
     return strategy, trainer
 
 

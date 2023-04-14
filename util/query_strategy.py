@@ -4,6 +4,8 @@ from torch.utils.data import DataLoader
 import util.jitfunc as f
 from util import SPACING32
 from util.taalhelper import augments_forward
+from torch import nn
+from sklearn.metrics import pairwise_distances
 
 
 class LimitSortedList(object):
@@ -30,7 +32,7 @@ class LimitSortedList(object):
 
 class QueryStrategy(object):
 
-    def __init__(self, unlabeled_dataloader: DataLoader, labeled_dataloader: DataLoader, **kwargs) -> None:
+    def __init__(self, unlabeled_dataloader: DataLoader, labeled_dataloader: DataLoader) -> None:
         super().__init__()
         self.unlabeled_dataloader = unlabeled_dataloader
         self.labeled_dataloader = labeled_dataloader
@@ -182,3 +184,72 @@ class LossPredictionQuery(SimpleQueryStrategy):
         _, features = model_output
         pred_loss = self.trainer.loss_predition_module(features)
         return pred_loss
+
+
+class CoresetQuery(QueryStrategy):
+
+    def __init__(self, unlabeled_dataloader: DataLoader, labeled_dataloader: DataLoader, **kwargs) -> None:
+        super().__init__(unlabeled_dataloader, labeled_dataloader)
+        assert "trainer" in kwargs
+        self.trainer = kwargs["trainer"]
+        self.model = kwargs["trainer"].model
+
+        pool_size = int(kwargs.get("pool_size", 16))
+        self.pool = nn.MaxPool2d(pool_size)
+        self.pool.eval()
+
+    @torch.no_grad()
+    def embedding(self, dataloader):
+
+        embedding_list = []
+        device = next(iter(self.model.parameters())).device
+        for idx, (img, _) in enumerate(dataloader):
+            img = img.to(device)
+            _, features = self.model(img)
+            embedding = self.pool(features[-1]).view((img.shape[0], -1))
+            embedding_list.append(embedding)
+        return torch.concat(embedding_list, dim=0)
+
+    def select_dataset_idx(self, query_num):
+        self.model.eval()
+        embedding_unlabeled = self.embedding(self.unlabeled_dataloader)
+        embedding_labeled = self.embedding(self.labeled_dataloader)
+        return self.furthest_first(unlabeled_set=embedding_unlabeled.cpu().numpy(),
+                                   labeled_set=embedding_labeled.cpu().numpy(),
+                                   budget=query_num)
+
+    def furthest_first(self, unlabeled_set, labeled_set, budget):
+        """
+        Selects points with maximum distance
+
+        Parameters
+        ----------
+        unlabeled_set: numpy array
+            Embeddings of unlabeled set
+        labeled_set: numpy array
+            Embeddings of labeled set
+        budget: int
+            Number of points to return
+        Returns
+        ----------
+        idxs: list
+            List of selected data point indexes with respect to unlabeled_x
+        """
+        m = np.shape(unlabeled_set)[0]
+        if np.shape(labeled_set)[0] == 0:
+            min_dist = np.tile(float("inf"), m)
+        else:
+            dist_ctr = pairwise_distances(unlabeled_set, labeled_set)
+            min_dist = np.amin(dist_ctr, axis=1)
+
+        idxs = []
+
+        for i in range(budget):
+            idx = min_dist.argmax()
+            idxs.append(idx)
+            dist_new_ctr = pairwise_distances(
+                unlabeled_set, unlabeled_set[[idx], :])
+            for j in range(m):
+                min_dist[j] = min(min_dist[j], dist_new_ctr[j, 0])
+
+        return idxs
