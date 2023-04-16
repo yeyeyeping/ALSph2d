@@ -32,7 +32,7 @@ class LimitSortedList(object):
 
 class QueryStrategy(object):
 
-    def __init__(self, unlabeled_dataloader: DataLoader, labeled_dataloader: DataLoader) -> None:
+    def __init__(self, unlabeled_dataloader: DataLoader, labeled_dataloader: DataLoader, **kwargs) -> None:
         super().__init__()
         self.unlabeled_dataloader = unlabeled_dataloader
         self.labeled_dataloader = labeled_dataloader

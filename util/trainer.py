@@ -144,7 +144,7 @@ class BaseTrainer(object):
     def valid(self, dataloader, cycle, batch_size, input_size):
         self.model.eval()
         tbar = tqdm(dataloader)
-        dice_his, iou_his,assd_his = [],[],[]
+        dice_his, iou_his, assd_his = [], [], []
         for idx, (img, mask) in enumerate(tbar):
             self.dice_metric.reset(), self.meaniou_metric.reset(), self.assd_metric.reset()
             pred_volume = np.empty((0, img.shape[-2], img.shape[-1]), dtype=np.float32)
