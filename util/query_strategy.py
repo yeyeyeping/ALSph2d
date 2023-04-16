@@ -20,7 +20,7 @@ class LimitSortedList(object):
 
     @property
     def data(self):
-        return list(map(lambda x: int(x[0]), self._data))
+        return map(lambda x: int(x[0]), self._data)
 
     def extend(self, idx):
         assert isinstance(idx, (torch.Tensor, np.ndarray, list, tuple))
