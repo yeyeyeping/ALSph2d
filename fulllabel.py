@@ -125,6 +125,7 @@ def al_cycle(args, logger):
         # validation
         dice, meaniou, assd = trainer.valid(dataloader["val"], -1, args.batch_size, args.input_size)
         logger.info(f"model EVAl | Dice:{dice} Mean IoU: {meaniou} assd: {assd} ")
+        torch.save(trainer.model.state_dict(), f"{args.checkpoint}/epoch={i*args.epoch}&dice={dice:.3f}&time={time.time()}.pth")
     writer.flush()
     writer.close()
 
