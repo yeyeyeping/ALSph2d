@@ -45,7 +45,7 @@ def parse_arg():
     parser.add_argument("--input-size", type=int, default=416)
     parser.add_argument("--forget-weight", type=bool, default=False)
     parser.add_argument("--query-strategy", type=str, default="LeastConfidence")
-    parser.add_argument("--query-strategy-param", type=dict, default={"round": 10,"pool_size":8})
+    parser.add_argument("--query-strategy-param", type=dict, default={"round": 10, "pool_size": 8})
     parser.add_argument("--trainer-param", type=dict, default={"num_augmentations": 3})
     args = parser.parse_args()
     if not os.path.exists(args.output_dir):
@@ -87,7 +87,6 @@ def save_query_plot(folder, labeled_percent, dice_list):
         fp.write(str(dice_list))
     plt.plot(labeled_percent, dice_list)
     plt.savefig(f"{folder}/result.jpg")
-
 
 
 def get_dataloader(args):
@@ -177,10 +176,6 @@ def al_cycle(args, logger):
         logger.info(
             f'add {query} samplers to labeled dataset')
 
-        if args.forget_weight:
-            logger.info("forget weight")
-            # reset model
-            trainer.forget_weight(cycle, total_cycle)
 
         # retrain model on updated dataloader
         loss, iou, dice = trainer.train(dataloader["labeled"], args.epoch, cycle)
@@ -195,9 +190,15 @@ def al_cycle(args, logger):
         dice_list.append(np.round(dice, 4))
 
         # save checkpoint
-        torch.save(trainer.model.state_dict(), f"{args.checkpoint}/cycle={cycle}&dice={dice:.3f}&time={time.time()}.pth")
+        torch.save(trainer.model.state_dict(),
+                   f"{args.checkpoint}/cycle={cycle}&dice={dice:.3f}&time={time.time()}.pth")
         if len(dataloader["unlabeled"].sampler.indices) == 0:
             break
+
+        if args.forget_weight:
+            logger.info("forget weight")
+            # reset model
+            trainer.forget_weight(cycle, total_cycle)
     save_query_plot(args.output_dir, labeled_percent, dice_list)
     writer.flush()
     writer.close()

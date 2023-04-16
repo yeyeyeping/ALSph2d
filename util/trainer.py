@@ -92,8 +92,8 @@ class BaseTrainer(object):
         return output, loss
 
     def train(self, dataloader, epochs, cycle):
+        self.train_loss.reset(), self.batch_time.reset(), self.data_time.reset(), self.dice_metric.reset(), self.meaniou_metric.reset()
         for epoch in range(epochs):
-            self.train_loss.reset(), self.batch_time.reset(), self.data_time.reset(), self.dice_metric.reset(), self.meaniou_metric.reset()
             tbar = tqdm(dataloader)
             tlc = time.time()
             self.model.train()
@@ -144,9 +144,9 @@ class BaseTrainer(object):
     def valid(self, dataloader, cycle, batch_size, input_size):
         self.model.eval()
         tbar = tqdm(dataloader)
+        dice_his, iou_his,assd_his = [],[],[]
         for idx, (img, mask) in enumerate(tbar):
             self.dice_metric.reset(), self.meaniou_metric.reset(), self.assd_metric.reset()
-
             pred_volume = np.empty((0, img.shape[-2], img.shape[-1]), dtype=np.float32)
             img, mask = img[0], mask[0]
             h, w = img.shape[-2], img.shape[-1]
@@ -177,10 +177,14 @@ class BaseTrainer(object):
             tbar.set_description(
                 f"CYCLE {cycle} EVAl | Dice:{dice:.3f} Mean IoU: {iou:.2f} asd: {assd:.2f} ")
 
+            dice_his.append(dice)
+            iou_his.append(iou)
+            assd_his.append(assd)
+
         avg_dice, avg_iou, avg_assd = \
-            np.round(self.dice_metric.aggregate().item(), 3), \
-                np.round(self.meaniou_metric.aggregate().item(), 2), \
-                np.round(self.assd_metric.aggregate().item(), 2)
+            np.round(np.mean(np.array(dice_his)), 3), \
+                np.round(np.mean(np.array(iou_his)), 3), \
+                np.round(np.mean(np.array(assd_his)), 3)
 
         tbar.set_description(
             f"CYCLE {cycle} EVAl AVG| Dice:{avg_dice:.3f} Mean IoU: {avg_iou:.3f} asd: {avg_assd:.3f} ")
