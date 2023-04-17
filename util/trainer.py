@@ -59,8 +59,8 @@ class BaseTrainer(object):
         return model
 
     def forget_weight(self, cycle, total_cycle):
-        self.model.apply(lambda param: initialize_weights(param, p=1 - cycle / total_cycle))
-
+        # self.model.apply(lambda param: initialize_weights(param, p=1 - cycle / total_cycle))
+        self.model.apply(lambda param: initialize_weights(param, p=1))
     def writer_scalar(self, niter, cycle, train_loss, mIoU, dice, stage, assd: int = None, prefix: str = None):
         prefix = prefix + "/" if prefix is not None else ""
         self.writer.add_scalar(f"{prefix}cycle{cycle}/{stage}/loss", train_loss, niter)
