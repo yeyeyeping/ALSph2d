@@ -1,6 +1,3 @@
-import warnings
-
-import torch
 from monai.metrics import Cumulative, DiceMetric, MeanIoU, SurfaceDistanceMetric
 from tqdm import tqdm
 import time
@@ -18,6 +15,7 @@ from monai.losses import DiceCELoss
 from torch.optim import Adam
 from torch.optim.lr_scheduler import MultiStepLR
 from model import build_model, initialize_weights, UNetWithDropout
+from util.metric import get_metric
 
 
 class NoInfSurfaceDistanceMetric(SurfaceDistanceMetric):
@@ -61,6 +59,7 @@ class BaseTrainer(object):
     def forget_weight(self, cycle, total_cycle):
         # self.model.apply(lambda param: initialize_weights(param, p=1 - cycle / total_cycle))
         self.model.apply(lambda param: initialize_weights(param, p=1))
+
     def writer_scalar(self, niter, cycle, train_loss, mIoU, dice, stage, assd: int = None, prefix: str = None):
         prefix = prefix + "/" if prefix is not None else ""
         self.writer.add_scalar(f"{prefix}cycle{cycle}/{stage}/loss", train_loss, niter)
@@ -140,16 +139,18 @@ class BaseTrainer(object):
 
         return avg_loss, mean_iou, avg_dice
 
+    def save(self, ckpath):
+        torch.save(self.model.state_dict(), ckpath)
+
     @torch.no_grad()
     def valid(self, dataloader, cycle, batch_size, input_size):
         self.model.eval()
         tbar = tqdm(dataloader)
         dice_his, iou_his, assd_his = [], [], []
         for idx, (img, mask) in enumerate(tbar):
-            self.dice_metric.reset(), self.meaniou_metric.reset(), self.assd_metric.reset()
-            pred_volume = np.empty((0, img.shape[-2], img.shape[-1]), dtype=np.float32)
             img, mask = img[0], mask[0]
             h, w = img.shape[-2], img.shape[-1]
+            batch_pred = []
             for batch in range(0, img.shape[0], batch_size):
                 last = batch + batch_size
                 batch_slices = img[batch:] if last >= img.shape[0] else img[batch:last]
@@ -163,16 +164,11 @@ class BaseTrainer(object):
                 batch_pred_mask = output.argmax(dim=1).cpu()
                 batch_pred_mask = zoom(batch_pred_mask, (1, h / input_size, w / input_size), order=0,
                                        mode='nearest')
-                pred_volume = np.concatenate([pred_volume, batch_pred_mask])
-                torch.cuda.empty_cache()
+                batch_pred.append(batch_pred_mask)
 
-            mask_onehot = one_hot(mask, 2)
-            volume_pred_mask = torch.from_numpy(label_smooth(pred_volume)).unsqueeze(1)
-            dice = self.dice_metric(y_pred=volume_pred_mask, y=mask_onehot)
-            iou = self.meaniou_metric(y_pred=volume_pred_mask, y=mask_onehot)
-            assd = self.assd_metric(y_pred=volume_pred_mask, y=mask_onehot)
-            dice, iou = dice[dice.isnan() == 0].mean(), iou[iou.isnan() == 0].mean()
-            assd = assd[(assd.isnan() == 0) & assd.isfinite()].mean()
+            pred_volume = np.concatenate(batch_pred)
+            del batch_pred
+            dice, iou, assd = get_metric(pred_volume, np.asarray(mask.squeeze(1)))
 
             tbar.set_description(
                 f"CYCLE {cycle} EVAl | Dice:{dice:.3f} Mean IoU: {iou:.2f} asd: {assd:.2f} ")

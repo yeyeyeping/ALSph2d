@@ -145,23 +145,24 @@ def al_cycle(args, logger):
     query_strategy = strategy_type(dataloader["unlabeled"], dataloader["labeled"], trainer=trainer,
                                    **args.query_strategy_param)
 
-    loss, iou, dice = trainer.train(dataloader["labeled"], args.epoch, -1)
-    logger.info(
-        f"initial model TRAIN | avg_loss: {loss} Dice:{dice} Mean IoU: {iou} ")
-
-    # validation
-    dice, meaniou, assd = trainer.valid(dataloader["val"], -1, args.batch_size, args.input_size)
-    logger.info(
-        f"initial model EVAl | Dice:{dice} Mean IoU: {meaniou} assd: {assd} ")
+    # loss, iou, dice = trainer.train(dataloader["labeled"], args.epoch, -1)
+    # logger.info(f"initial model TRAIN | avg_loss: {loss} Dice:{dice} Mean IoU: {iou} ")
+    #
+    # # validation
+    # dice, meaniou, assd = trainer.valid(dataloader["val"], -1, args.batch_size, args.input_size)
+    # logger.info(f"initial model EVAl | Dice:{dice} Mean IoU: {meaniou} assd: {assd} ")
 
     num_dataset = len(dataloader["labeled"].dataset)
     labeled_percent, dice_list = [], []
-    labeled_percent.append(len(dataloader["labeled"].sampler.indices) / num_dataset)
-    dice_list.append(dice)
+
+    ratio = len(dataloader["labeled"].sampler.indices) / num_dataset
+    labeled_percent.append(ratio)
+    # dice_list.append(dice)
+    # trainer.save(f"{args.checkpoint}/cycle={-1}&labeled={ratio}&dice={dice:.3f}&time={time.time()}.pth")
+
     cycle = 0
     budget = args.budget
     query = args.query
-
     total_cycle = (budget // query) + 1
     while budget > 0:
         logger.info(f"cycle {cycle} | budget : {budget} query : {query}")
@@ -173,25 +174,22 @@ def al_cycle(args, logger):
 
         query_strategy.sample(query)
 
-        logger.info(
-            f'add {query} samplers to labeled dataset')
-
+        logger.info(f'add {query} samplers to labeled dataset')
 
         # retrain model on updated dataloader
         loss, iou, dice = trainer.train(dataloader["labeled"], args.epoch, cycle)
-        logger.info(
-            f"CYCLE {cycle} TRAIN | avg_loss: {loss} avg_dice:{dice} avg_mean_iou: {iou} ")
+        logger.info(f"CYCLE {cycle} TRAIN | avg_loss: {loss} avg_dice:{dice} avg_mean_iou: {iou} ")
 
         dice, meaniou, assd = trainer.valid(dataloader["val"], cycle, args.batch_size, args.input_size)
-        logger.info(
-            f'Cycle {cycle} EVAl | len(dl): {len(dataloader["labeled"].sampler.indices)} len(du): {len(dataloader["unlabeled"].sampler.indices)} |  avg_dice:{dice} avg_mean_iou: {meaniou} avg_assd: {assd} ')
+        logger.info(f'Cycle {cycle} EVAl | len(dl): {len(dataloader["labeled"].sampler.indices)} len(du): {len(dataloader["unlabeled"].sampler.indices)} |  avg_dice:{dice} avg_mean_iou: {meaniou} avg_assd: {assd} ')
 
-        labeled_percent.append(np.round(len(dataloader["labeled"].sampler.indices) / num_dataset, 4))
+        ratio = np.round(len(dataloader["labeled"].sampler.indices) / num_dataset, 4)
+        labeled_percent.append(ratio)
         dice_list.append(np.round(dice, 4))
 
         # save checkpoint
-        torch.save(trainer.model.state_dict(),
-                   f"{args.checkpoint}/cycle={cycle}&dice={dice:.3f}&time={time.time()}.pth")
+        trainer.save(f"{args.checkpoint}/cycle={cycle}&labeled={ratio}&dice={dice:.3f}&time={time.time()}.pth")
+
         if len(dataloader["unlabeled"].sampler.indices) == 0:
             break
 

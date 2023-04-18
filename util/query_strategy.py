@@ -194,8 +194,8 @@ class CoresetQuery(QueryStrategy):
         self.trainer = kwargs["trainer"]
         self.model = kwargs["trainer"].model
 
-        pool_size = int(kwargs.get("pool_size", 16))
-        self.pool = nn.MaxPool2d(pool_size)
+        pool_size = int(kwargs.get("pool_size", 12))
+        self.pool = nn.AdaptiveAvgPool2d((pool_size, pool_size))
         self.pool.eval()
 
     @torch.no_grad()
@@ -206,7 +206,7 @@ class CoresetQuery(QueryStrategy):
         for idx, (img, _) in enumerate(dataloader):
             img = img.to(device)
             _, features = self.model(img)
-            embedding = self.pool(features[-1]).view((img.shape[0], -1))
+            embedding = self.pool(features[0]).view((img.shape[0], -1))
             embedding_list.append(embedding)
         return torch.concat(embedding_list, dim=0)
 

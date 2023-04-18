@@ -278,7 +278,7 @@ class UNetWithFeature(nn.Module):
         up_4 = self.up_4(concat_4)
         out = self.out(up_4)
 
-        return out, [concat_1, concat_2, concat_3, concat_4]
+        return out, [concat_1.detach(), concat_2.detach(), concat_3.detach(), concat_4.detach()]
 
 
 if __name__ == '__main__':
