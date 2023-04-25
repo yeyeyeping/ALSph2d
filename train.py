@@ -29,13 +29,13 @@ from util.trainer import BaseTrainer
 def parse_arg():
     parser = ArgumentParser()
     parser.add_argument("--data-dir", type=str,
-                        default="dataset/preprocess")
+                        default="dataset/preprocessed")
     parser.add_argument("--output-dir", type=str, default="output")
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--model", type=str, default="unet")
     parser.add_argument("--seed", type=int, default=123)
-    parser.add_argument("--initial-labeled", type=int, default=940)
-    parser.add_argument("--budget", type=int, default=2000)
+    parser.add_argument("--initial-labeled", type=int, default=999)
+    parser.add_argument("--budget", type=int, default=2600)
     parser.add_argument("--query", type=int, default=200)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--epoch", type=int, default=50)
@@ -145,20 +145,20 @@ def al_cycle(args, logger):
     query_strategy = strategy_type(dataloader["unlabeled"], dataloader["labeled"], trainer=trainer,
                                    **args.query_strategy_param)
 
-    # loss, iou, dice = trainer.train(dataloader["labeled"], args.epoch, -1)
-    # logger.info(f"initial model TRAIN | avg_loss: {loss} Dice:{dice} Mean IoU: {iou} ")
-    #
-    # # validation
-    # dice, meaniou, assd = trainer.valid(dataloader["val"], -1, args.batch_size, args.input_size)
-    # logger.info(f"initial model EVAl | Dice:{dice} Mean IoU: {meaniou} assd: {assd} ")
+    loss, iou, dice = trainer.train(dataloader["labeled"], args.epoch, -1)
+    logger.info(f"initial model TRAIN | avg_loss: {loss} Dice:{dice} Mean IoU: {iou} ")
+
+    # validation
+    dice, meaniou, assd = trainer.valid(dataloader["val"], -1, args.batch_size, args.input_size)
+    logger.info(f"initial model EVAl | Dice:{dice} Mean IoU: {meaniou} assd: {assd} ")
 
     num_dataset = len(dataloader["labeled"].dataset)
     labeled_percent, dice_list = [], []
 
     ratio = len(dataloader["labeled"].sampler.indices) / num_dataset
     labeled_percent.append(ratio)
-    # dice_list.append(dice)
-    # trainer.save(f"{args.checkpoint}/cycle={-1}&labeled={ratio}&dice={dice:.3f}&time={time.time()}.pth")
+    dice_list.append(dice)
+    trainer.save(f"{args.checkpoint}/cycle={-1}&labeled={ratio}&dice={dice:.3f}&time={time.time()}.pth")
 
     cycle = 0
     budget = args.budget
