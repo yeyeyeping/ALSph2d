@@ -1,3 +1,5 @@
+import random
+
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
@@ -84,7 +86,7 @@ class SimpleQueryStrategy(QueryStrategy):
             score = self.compute_score(output).cpu()
             assert score.shape[0] == img.shape[0], "shape mismatch!"
             offset = batch_idx * self.unlabeled_dataloader.batch_size
-            idx_entropy = torch.column_stack([torch.arange(offset, offset + img.shape[0]), score]).data
+            idx_entropy = torch.column_stack([torch.arange(offset, offset + img.shape[0]), score])
             q.extend(idx_entropy)
         return q.data
 
@@ -138,7 +140,7 @@ class TAAL(QueryStrategy):
             score = f.JSD(aug_out, SPACING32).cpu()
             assert score.shape[0] == img.shape[0], "shape mismatch!"
             offset = batch_idx * self.unlabeled_dataloader.batch_size
-            idx_entropy = torch.column_stack([torch.arange(offset, offset + img.shape[0]), score]).data
+            idx_entropy = torch.column_stack([torch.arange(offset, offset + img.shape[0]), score])
             q.extend(idx_entropy)
 
         return q.data
@@ -168,7 +170,7 @@ class BALD(QueryStrategy):
             score = f.JSD(out, SPACING32).cpu()
             assert score.shape[0] == img.shape[0], "shape mismatch!"
             offset = batch_idx * self.unlabeled_dataloader.batch_size
-            idx_entropy = torch.column_stack([torch.arange(offset, offset + img.shape[0]), score]).data
+            idx_entropy = torch.column_stack([torch.arange(offset, offset + img.shape[0]), score])
             q.extend(idx_entropy)
 
         return q.data
@@ -253,3 +255,36 @@ class CoresetQuery(QueryStrategy):
                 min_dist[j] = min(min_dist[j], dist_new_ctr[j, 0])
 
         return idxs
+
+
+class UncertaintyBatchQuery(QueryStrategy):
+    def __init__(self, unlabeled_dataloader: DataLoader, labeled_dataloader: DataLoader, **kwargs) -> None:
+        super().__init__(unlabeled_dataloader, labeled_dataloader)
+        assert "trainer" in kwargs
+        self.model = kwargs["trainer"].model
+
+    @torch.no_grad()
+    def select_dataset_idx(self, query_num):
+        self.model.eval()
+        device = next(iter(self.model.parameters())).device
+        uncertainty_score = []
+        for batch_idx, (img, _) in enumerate(self.unlabeled_dataloader):
+            img = img.to(device)
+            output = self.model(img)
+            score = f.max_entropy(output, SPACING32).cpu()
+            assert score.shape[0] == img.shape[0], "shape mismatch!"
+            offset = batch_idx * self.unlabeled_dataloader.batch_size
+            idx_entropy = torch.column_stack([torch.arange(offset, offset + img.shape[0]), score])
+            uncertainty_score.extend(idx_entropy.tolist())
+        random.shuffle(uncertainty_score)
+        # todo: drop last batch?
+        splits = []
+        for s in range(0, len(uncertainty_score), query_num):
+            end = s + query_num
+            if end >= len(uncertainty_score):
+                end = None
+            splits.append(uncertainty_score[s: end])
+        batch_uncertainty = list(map(lambda x: np.sum(x, axis=0)[1], splits))
+        max_idx = np.argmax(batch_uncertainty)
+        selected_batch = np.asarray(splits[max_idx])
+        return selected_batch[:, 0].astype(np.uint64)
