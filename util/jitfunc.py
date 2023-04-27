@@ -18,7 +18,7 @@ def max_entropy(model_output: torch.Tensor, spacing32: float) -> torch.Tensor:
     return torch.mean(-model_output * torch.log(model_output + spacing32), dim=(1, 2, 3))
 
 
-@torch.jit.script
+# @torch.jit.script
 def JSD(data: torch.Tensor, spacing32: float) -> torch.Tensor:
     # data:round x batch x class x height x width
     mean = data.mean(0)
