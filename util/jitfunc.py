@@ -20,7 +20,7 @@ def max_entropy(model_output: torch.Tensor, spacing32: float) -> torch.Tensor:
 
 @torch.jit.script
 def JSD(data: torch.Tensor, spacing32: float) -> torch.Tensor:
-    # data:round x batch x class x height x weight
+    # data:round x batch x class x height x width
     mean = data.mean(0)
     # mean entropy per pixel
     mean_entropy = -torch.mean(mean * torch.log(mean + spacing32), dim=[-3, -2, -1])

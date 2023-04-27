@@ -1,3 +1,5 @@
+from typing import NewType
+
 from monai.metrics import Cumulative, DiceMetric, MeanIoU, SurfaceDistanceMetric
 from tqdm import tqdm
 import time
@@ -241,3 +243,6 @@ class CoresetTrainer(BaseTrainer):
         output = output.softmax(1)
         loss = self.criterion(output, onehot_mask)
         return output, loss
+
+
+ConstrativeTrainer = CoresetTrainer

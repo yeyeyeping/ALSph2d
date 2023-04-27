@@ -1,5 +1,5 @@
 import random
-
+from pymic.util.evaluation_seg import binary_dice
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
@@ -25,10 +25,10 @@ class LimitSortedList(object):
     def data(self):
         return map(lambda x: int(x[0]), self._data)
 
-    def extend(self, idx):
-        assert isinstance(idx, (torch.Tensor, np.ndarray, list, tuple))
-        idx = list(idx)
-        self._data.extend(idx)
+    def extend(self, idx_score):
+        assert isinstance(idx_score, (torch.Tensor, np.ndarray, list, tuple))
+        idx_score = list(idx_score)
+        self._data.extend(idx_score)
         if len(self._data) > self.limit:
             self._data = sorted(self._data, key=lambda x: x[1], reverse=self.descending)[:self.limit]
 
@@ -296,7 +296,9 @@ class ConstrativeQuery(QueryStrategy):
         super().__init__(unlabeled_dataloader, labeled_dataloader)
         assert "trainer" in kwargs
         self.model = kwargs["trainer"].model
-        self.k = int(kwargs.get("k"), 20)
+        self.k = int(kwargs.get("constrative_sampler_size", 20))
+        assert self.k < len(
+            unlabeled_dataloader.sampler.indices), f"{self.k} > {len(labeled_dataloader.sampler.indices)}"
         pool_size = int(kwargs.get("pool_size", 12))
         self.pool = nn.AdaptiveAvgPool2d((pool_size, pool_size))
         self.pool.eval()
@@ -314,20 +316,37 @@ class ConstrativeQuery(QueryStrategy):
             labeled_feature_list.append(normal_feature.cpu().numpy())
         labeled_feature = np.concatenate(labeled_feature_list)
 
-        unlabeled_pred = []
         for _, (img, _) in enumerate(self.unlabeled_dataloader):
             img = img.to(device)
-            output, features = self.model(img)
-            unlabeled_pred.append(output.softmax().cpu().numpy())
+            _, features = self.model(img)
             embedding = self.pool(features[0]).view((img.shape[0], -1))
             normal_feature = F.normalize(embedding, dim=1)
             unlabeled_feature_list.append(normal_feature.cpu().numpy())
-        unlabeled_pred = np.concatenate(unlabeled_pred)
         unlabeled_feature = np.concatenate(unlabeled_feature_list)
+
         distances = pairwise_distances(unlabeled_feature, labeled_feature, metric="cosine")
-        argidx = np.argmax(distances, axis=1)
+
+        del unlabeled_feature, labeled_feature
+
+        argidx = np.argsort(distances, axis=1)
         kidx = argidx[:, :self.k]
         shape = kidx.shape
-        kidx = kidx.view(kidx.size, -1)
-        imageidx = self.convert2img_idx(kidx, self.labeled_dataloader)
-        # imageidx
+        dataset_idx = np.asarray(self.convert2img_idx(kidx.flatten(), self.labeled_dataloader), dtype=np.int32).reshape(
+            shape)
+        labeled_dataset, unlabeled_dataset = self.labeled_dataloader.dataset, self.unlabeled_dataloader.dataset
+        q = []
+
+        for unlabeled_idx, labeled_idxs in enumerate(dataset_idx):
+            unlabeled_img, _ = unlabeled_dataset[self.unlabeled_dataloader.sampler.indices[unlabeled_idx]]
+            labeled_img, _ = zip(*[labeled_dataset[img_idx] for img_idx in labeled_idxs])
+            labeled_img = torch.stack(labeled_img)
+            unlabeled_img, labeled_img = unlabeled_img.to(device), labeled_img.to(device)
+            unlab_pred, _ = self.model(unlabeled_img.unsqueeze(0))
+            unlab_pred = unlab_pred.softmax(1).repeat(labeled_img.shape[0], 1, 1, 1)[:, 1]
+            lab_pred, _ = self.model(labeled_img)
+            lab_pred = lab_pred.softmax(1)[:, 1]
+            q.append((unlabeled_idx, binary_dice(lab_pred.cpu().numpy(), unlab_pred.cpu().numpy())))
+
+        torch.cuda.empty_cache()
+
+        return map(lambda x: x[0], sorted(q, key=lambda x: x[1])[:query_num])

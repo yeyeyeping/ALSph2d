@@ -45,7 +45,8 @@ def parse_arg():
     parser.add_argument("--input-size", type=int, default=416)
     parser.add_argument("--forget-weight", type=bool, default=False)
     parser.add_argument("--query-strategy", type=str, default="LeastConfidence")
-    parser.add_argument("--query-strategy-param", type=dict, default={"round": 10, "pool_size": 8})
+    parser.add_argument("--query-strategy-param", type=dict,
+                        default={"round": 10, "pool_size": 8, "constrative_sampler_size": 20})
     parser.add_argument("--trainer-param", type=dict, default={"num_augmentations": 3})
     args = parser.parse_args()
     if not os.path.exists(args.output_dir):
@@ -181,7 +182,8 @@ def al_cycle(args, logger):
         logger.info(f"CYCLE {cycle} TRAIN | avg_loss: {loss} avg_dice:{dice} avg_mean_iou: {iou} ")
 
         dice, meaniou, assd = trainer.valid(dataloader["val"], cycle, args.batch_size, args.input_size)
-        logger.info(f'Cycle {cycle} EVAl | len(dl): {len(dataloader["labeled"].sampler.indices)} len(du): {len(dataloader["unlabeled"].sampler.indices)} |  avg_dice:{dice} avg_mean_iou: {meaniou} avg_assd: {assd} ')
+        logger.info(
+            f'Cycle {cycle} EVAl | len(dl): {len(dataloader["labeled"].sampler.indices)} len(du): {len(dataloader["unlabeled"].sampler.indices)} |  avg_dice:{dice} avg_mean_iou: {meaniou} avg_assd: {assd} ')
 
         ratio = np.round(len(dataloader["labeled"].sampler.indices) / num_dataset, 4)
         labeled_percent.append(ratio)
