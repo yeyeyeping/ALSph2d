@@ -29,7 +29,7 @@ from util.trainer import BaseTrainer
 def parse_arg():
     parser = ArgumentParser()
     parser.add_argument("--data-dir", type=str,
-                        default="data")
+                        default="data/preprocessed")
     parser.add_argument("--output-dir", type=str, default="output")
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--model", type=str, default="unet")
