@@ -47,7 +47,7 @@ class LossPredModule(nn.Module):
 
 # LossPredictionLoss
 def LossPredLoss(input, target, margin=1.0, reduction='mean'):
-    assert len(input) % 2 == 0, 'the batch size is not even.'
+    assert len(input) % 2 == 0, f'the batch size {len(input)}is not even.'
     assert input.shape == input.flip(0).shape
 
     input = (input - input.flip(0))[:len(input) // 2]  # [l_1 - l_2B, l_2 - l_2B-1, ... , l_B - l_B+1], batch size = 2B

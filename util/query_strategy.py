@@ -8,6 +8,7 @@ from util import SPACING32
 from util.taalhelper import augments_forward
 from torch import nn
 from sklearn.metrics import pairwise_distances
+from torch.nn import functional as F
 
 
 class LimitSortedList(object):
@@ -246,7 +247,7 @@ class CoresetQuery(QueryStrategy):
 
         idxs = []
 
-        for i in range(budget):
+        for _ in range(budget):
             idx = min_dist.argmax()
             idxs.append(idx)
             dist_new_ctr = pairwise_distances(
@@ -277,7 +278,7 @@ class UncertaintyBatchQuery(QueryStrategy):
             idx_entropy = torch.column_stack([torch.arange(offset, offset + img.shape[0]), score])
             uncertainty_score.extend(idx_entropy.tolist())
         random.shuffle(uncertainty_score)
-        # todo: drop last batch?
+        # todo:Is that  necessary to drop last few samplers?
         splits = []
         for s in range(0, len(uncertainty_score), query_num):
             end = s + query_num
@@ -288,3 +289,45 @@ class UncertaintyBatchQuery(QueryStrategy):
         max_idx = np.argmax(batch_uncertainty)
         selected_batch = np.asarray(splits[max_idx])
         return selected_batch[:, 0].astype(np.uint64)
+
+
+class ConstrativeQuery(QueryStrategy):
+    def __init__(self, unlabeled_dataloader: DataLoader, labeled_dataloader: DataLoader, **kwargs) -> None:
+        super().__init__(unlabeled_dataloader, labeled_dataloader)
+        assert "trainer" in kwargs
+        self.model = kwargs["trainer"].model
+        self.k = int(kwargs.get("k"), 20)
+        pool_size = int(kwargs.get("pool_size", 12))
+        self.pool = nn.AdaptiveAvgPool2d((pool_size, pool_size))
+        self.pool.eval()
+
+    @torch.no_grad()
+    def select_dataset_idx(self, query_num):
+        self.model.eval()
+        device = next(iter(self.model.parameters())).device
+        labeled_feature_list, unlabeled_feature_list = [], []
+        for _, (img, _) in enumerate(self.labeled_dataloader):
+            img = img.to(device)
+            _, features = self.model(img)
+            embedding = self.pool(features[0]).view((img.shape[0], -1))
+            normal_feature = F.normalize(embedding, dim=1)
+            labeled_feature_list.append(normal_feature.cpu().numpy())
+        labeled_feature = np.concatenate(labeled_feature_list)
+
+        unlabeled_pred = []
+        for _, (img, _) in enumerate(self.unlabeled_dataloader):
+            img = img.to(device)
+            output, features = self.model(img)
+            unlabeled_pred.append(output.softmax().cpu().numpy())
+            embedding = self.pool(features[0]).view((img.shape[0], -1))
+            normal_feature = F.normalize(embedding, dim=1)
+            unlabeled_feature_list.append(normal_feature.cpu().numpy())
+        unlabeled_pred = np.concatenate(unlabeled_pred)
+        unlabeled_feature = np.concatenate(unlabeled_feature_list)
+        distances = pairwise_distances(unlabeled_feature, labeled_feature, metric="cosine")
+        argidx = np.argmax(distances, axis=1)
+        kidx = argidx[:, :self.k]
+        shape = kidx.shape
+        kidx = kidx.view(kidx.size, -1)
+        imageidx = self.convert2img_idx(kidx, self.labeled_dataloader)
+        # imageidx
