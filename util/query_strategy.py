@@ -166,7 +166,7 @@ class BALD(QueryStrategy):
             out = torch.empty(self.dropout_round, img.shape[0], 2, img.shape[-2], img.shape[-1], device=device)
             for round_ in range(self.dropout_round):
                 img = img.to(device)
-                output,_ = self.model(img)
+                output, _ = self.model(img)
                 out[round_] = output.softmax(dim=1)
             score = f.JSD(out, SPACING32).cpu()
             assert score.shape[0] == img.shape[0], "shape mismatch!"
