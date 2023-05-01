@@ -98,8 +98,8 @@ class MaxEntropy(SimpleQueryStrategy):
         super().__init__(unlabeled_dataloader, labeled_dataloader, descending=True, **kwargs)
 
     def compute_score(self, model_output):
-        model_output = model_output.softmax(dim=1)
-        return f.max_entropy(model_output, SPACING32)
+        model_output, _ = model_output
+        return f.max_entropy(model_output.softmax(dim=1), SPACING32)
 
 
 class MarginConfidence(SimpleQueryStrategy):
@@ -108,8 +108,8 @@ class MarginConfidence(SimpleQueryStrategy):
         super().__init__(unlabeled_dataloader, labeled_dataloader, descending=False, **kwargs)
 
     def compute_score(self, model_output):
-        model_output = model_output.softmax(dim=1)
-        return f.margin_confidence(model_output)
+        model_output, _ = model_output
+        return f.margin_confidence(model_output.softmax(dim=1))
 
 
 class LeastConfidence(SimpleQueryStrategy):
@@ -117,8 +117,8 @@ class LeastConfidence(SimpleQueryStrategy):
         super().__init__(unlabeled_dataloader, labeled_dataloader, descending=False, **kwargs)
 
     def compute_score(self, model_output):
-        model_output = model_output.softmax(dim=1)
-        output_max = torch.max(model_output, dim=1)[0]
+        model_output, _ = model_output
+        output_max = torch.max(model_output.softmax(dim=1), dim=1)[0]
         return output_max.mean(dim=(-2, -1))
 
 
@@ -136,8 +136,8 @@ class TAAL(QueryStrategy):
         q = LimitSortedList(limit=query_num, descending=True)
         for batch_idx, (img, _) in enumerate(self.unlabeled_dataloader):
             img = img.to(device)
-            output = self.model(img).softmax(dim=1)
-            aug_out = augments_forward(img, self.model, output, self.num_augmentations, device)
+            output, _ = self.model(img)
+            aug_out = augments_forward(img, self.model, output.softmax(dim=1), self.num_augmentations, device)
             score = f.JSD(aug_out, SPACING32).cpu()
             assert score.shape[0] == img.shape[0], "shape mismatch!"
             offset = batch_idx * self.unlabeled_dataloader.batch_size
@@ -166,8 +166,8 @@ class BALD(QueryStrategy):
             out = torch.empty(self.dropout_round, img.shape[0], 2, img.shape[-2], img.shape[-1], device=device)
             for round_ in range(self.dropout_round):
                 img = img.to(device)
-                output = self.model(img).softmax(dim=1)
-                out[round_] = output
+                output,_ = self.model(img)
+                out[round_] = output.softmax(dim=1)
             score = f.JSD(out, SPACING32).cpu()
             assert score.shape[0] == img.shape[0], "shape mismatch!"
             offset = batch_idx * self.unlabeled_dataloader.batch_size
@@ -271,8 +271,8 @@ class UncertaintyBatchQuery(QueryStrategy):
         uncertainty_score = []
         for batch_idx, (img, _) in enumerate(self.unlabeled_dataloader):
             img = img.to(device)
-            output = self.model(img)
-            score = f.max_entropy(output, SPACING32).cpu()
+            output, _ = self.model(img)
+            score = f.max_entropy(output.softmax(dim=1), SPACING32).cpu()
             assert score.shape[0] == img.shape[0], "shape mismatch!"
             offset = batch_idx * self.unlabeled_dataloader.batch_size
             idx_entropy = torch.column_stack([torch.arange(offset, offset + img.shape[0]), score])

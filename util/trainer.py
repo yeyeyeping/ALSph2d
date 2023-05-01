@@ -1,5 +1,3 @@
-from typing import NewType
-
 from monai.metrics import Cumulative, DiceMetric, MeanIoU, SurfaceDistanceMetric
 from tqdm import tqdm
 import time
@@ -18,6 +16,7 @@ from torch.optim import Adam
 from torch.optim.lr_scheduler import MultiStepLR
 from model import build_model, initialize_weights, UNetWithDropout
 from util.metric import get_metric
+from model import UNetWithFeature
 
 
 class NoInfSurfaceDistanceMetric(SurfaceDistanceMetric):
@@ -54,7 +53,7 @@ class BaseTrainer(object):
         return MultiStepLR(optimizer, milestones=[0.4 * self.args.epoch, 0.7 * self.args.epoch], gamma=0.5)
 
     def build_model(self):
-        model = build_model(self.args.model).to(self.args.device)
+        model = UNetWithFeature(1, 2, self.args.ndf).to(self.args.device)
         model.apply(lambda param: initialize_weights(param, 1))
         return model
 
@@ -88,8 +87,8 @@ class BaseTrainer(object):
             include_background=False), NoInfSurfaceDistanceMetric(include_background=False, symmetric=True)
 
     def batch_forward(self, img, onehot_mask):
-        output = self.model(img).softmax(dim=1)
-        loss = self.criterion(output, onehot_mask)
+        output, _ = self.model(img)
+        loss = self.criterion(output.softmax(dim=1), onehot_mask)
         return output, loss
 
     def train(self, dataloader, epochs, cycle):
@@ -160,9 +159,7 @@ class BaseTrainer(object):
                 batch_slices = zoom(batch_slices, (1, 1, input_size / h, input_size / w), order=0,
                                     mode='nearest')
                 batch_slices = torch.from_numpy(batch_slices).to(self.args.device)
-                output = self.model(batch_slices)
-                if isinstance(output, tuple):
-                    output = output[0]
+                output, _ = self.model(batch_slices)
                 batch_pred_mask = output.argmax(dim=1).cpu()
                 batch_pred_mask = zoom(batch_pred_mask, (1, h / input_size, w / input_size), order=0,
                                        mode='nearest')
@@ -202,15 +199,19 @@ class TTATrainer(BaseTrainer):
 
 class BALDTrainer(BaseTrainer):
     def build_model(self):
-        self.logger.warn(f"BALD Only support model UnetWithDropout,args.model= {self.args.model} has been ignored")
-        return UNetWithDropout(1, 2, 16).to(self.args.device)
+        model = UNetWithDropout(1, 2, self.args.ndf).to(self.args.device)
+        model.apply(lambda x: initialize_weights(x, 1))
+        return model
 
 
 class LearningLossTrainer(BaseTrainer):
     def build_model(self):
         from model.LossPredictionModule import LossPredModule
         self.loss_predition_module = LossPredModule().to(self.args.device)
-        return UNetWithFeature(1, 2, 16).to(self.args.device)
+        self.loss_predition_module.apply(lambda x: initialize_weights(x, 1))
+        model = UNetWithFeature(1, 2, self.args.ndf).to(self.args.device)
+        model.apply(lambda x: initialize_weights(x, 1))
+        return model
 
     def build_optimizer(self):
         import itertools
@@ -236,7 +237,9 @@ class LearningLossTrainer(BaseTrainer):
 
 class CoresetTrainer(BaseTrainer):
     def build_model(self):
-        return UNetWithFeature(1, 2, 16).to(self.args.device)
+        model = UNetWithFeature(1, 2, self.args.ndf).to(self.args.device)
+        model.apply(lambda x: initialize_weights(x, 1))
+        return model
 
     def batch_forward(self, img, onehot_mask):
         output, _ = self.model(img)

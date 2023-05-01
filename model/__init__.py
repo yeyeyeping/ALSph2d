@@ -1,4 +1,4 @@
-from .Unet import UNet,UNetWithDropout
+from .Unet import UNet,UNetWithDropout,UNetWithFeature
 import random
 import numpy as np
 import torch.nn as nn
@@ -25,7 +25,5 @@ def build_model(model: str):
         return UNet(1, 2, 48)
     elif model == "unet64":
         return UNet(1, 2, 48)
-    elif model == "unetwithdropout":
-        return UNetWithDropout(1, 2, 16)
     else:
         raise NotImplementedError

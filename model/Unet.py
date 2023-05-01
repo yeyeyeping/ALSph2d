@@ -203,16 +203,20 @@ class UNetWithDropout(nn.Module):
         up_4 = self.up_4(concat_4)
         out = self.out(up_4)
 
-        return out
+        return out, [concat_1.detach(), concat_2.detach(), concat_3.detach(), concat_4.detach()]
 
 
 class UNetWithFeature(nn.Module):
 
-    def __init__(self, in_dim, out_dim, num_filter):
+    def __init__(self, in_dim, out_dim, num_filter, dropout_p=0.5):
         super(UNetWithFeature, self).__init__()
         self.in_dim = in_dim
         self.out_dim = out_dim
         self.num_filter = num_filter
+        self.drouput1 = nn.Dropout(dropout_p)
+        self.drouput2 = nn.Dropout(dropout_p)
+        self.drouput3 = nn.Dropout(dropout_p)
+        self.drouput4 = nn.Dropout(dropout_p)
         act_fn = nn.ReLU()
         self.down_1 = double_conv_block(self.in_dim, self.num_filter, act_fn)
         self.pool_1 = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
@@ -253,11 +257,11 @@ class UNetWithFeature(nn.Module):
         self.out = out_block(self.num_filter, out_dim)
 
     def forward(self, x):
-        down_1 = self.down_1(x)
+        down_1 = self.drouput1(self.down_1(x))
         pool_1 = self.pool_1(down_1)
-        down_2 = self.down_2(pool_1)
+        down_2 = self.drouput2(self.down_2(pool_1))
         pool_2 = self.pool_2(down_2)
-        down_3 = self.down_3(pool_2)
+        down_3 = self.drouput3(self.down_3(pool_2))
         pool_3 = self.pool_3(down_3)
         down_4 = self.down_4(pool_3)
         pool_4 = self.pool_4(down_4)
@@ -266,7 +270,7 @@ class UNetWithFeature(nn.Module):
 
         trans_1 = self.trans_1(bridge)
         concat_1 = torch.cat([trans_1, down_4], dim=1)
-        up_1 = self.up_1(concat_1)
+        up_1 = self.drouput4(self.up_1(concat_1))
         trans_2 = self.trans_2(up_1)
         concat_2 = torch.cat([trans_2, down_3], dim=1)
         up_2 = self.up_2(concat_2)
@@ -284,7 +288,7 @@ class UNetWithFeature(nn.Module):
 if __name__ == '__main__':
     model = UNetWithFeature(1, 2, 16).cuda()
     data = torch.randn(16, 1, 416, 416).cuda()
-    pred,features = model(data)
+    pred, features = model(data)
     print(pred.shape)
     for feature in features:
         print(feature.shape)

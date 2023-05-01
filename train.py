@@ -1,3 +1,4 @@
+import random
 from argparse import ArgumentParser
 from os.path import join
 import albumentations as A
@@ -32,9 +33,9 @@ def parse_arg():
                         default="data/preprocessed")
     parser.add_argument("--output-dir", type=str, default="output")
     parser.add_argument("--device", type=str, default="cuda:0")
-    parser.add_argument("--model", type=str, default="unet")
+    parser.add_argument("--ndf", type=int, default=16)
     parser.add_argument("--seed", type=int, default=123)
-    parser.add_argument("--initial-labeled", type=int, default=999)
+    parser.add_argument("--initial-labeled", type=int, default=1000)
     parser.add_argument("--budget", type=int, default=2600)
     parser.add_argument("--query", type=int, default=200)
     parser.add_argument("--batch-size", type=int, default=32)
@@ -58,6 +59,7 @@ def parse_arg():
 
 
 def random_seed(seed):
+    random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.backends.cudnn.enabled = True
@@ -156,7 +158,7 @@ def al_cycle(args, logger):
     num_dataset = len(dataloader["labeled"].dataset)
     labeled_percent, dice_list = [], []
 
-    ratio = len(dataloader["labeled"].sampler.indices) / num_dataset
+    ratio = round(len(dataloader["labeled"].sampler.indices) / num_dataset, 4)
     labeled_percent.append(ratio)
     dice_list.append(dice)
     trainer.save(f"{args.checkpoint}/cycle={-1}&labeled={ratio}&dice={dice:.3f}&time={time.time()}.pth")
