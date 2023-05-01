@@ -32,21 +32,14 @@ def parse_arg():
                         default="data/preprocessed")
     parser.add_argument("--output-dir", type=str, default="output")
     parser.add_argument("--device", type=str, default="cuda:0")
-    parser.add_argument("--model", type=str, default="unet")
+    parser.add_argument("--ndf", type=int, default=16)
     parser.add_argument("--seed", type=int, default=123)
-    parser.add_argument("--initial-labeled", type=int, default=940)
-    parser.add_argument("--budget", type=int, default=2000)
-    parser.add_argument("--query", type=int, default=200)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--epoch", type=int, default=5)
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--input-size", type=int, default=416)
-    parser.add_argument("--forget-weight", type=bool, default=False)
-    parser.add_argument("--query-strategy", type=str, default="LeastConfidence")
-    parser.add_argument("--query-strategy-param", type=dict, default={"round": 10, "pool_size": 8})
-    parser.add_argument("--trainer-param", type=dict, default={"num_augmentations": 3})
     args = parser.parse_args()
     if not os.path.exists(args.output_dir):
         os.mkdir(args.output_dir)
@@ -117,7 +110,7 @@ def al_cycle(args, logger):
     writer = SummaryWriter(join(args.output_dir, "tensorboard"))
     dataloader = get_dataloader(args)
 
-    trainer = BaseTrainer(args, logger, writer, args.trainer_param)
+    trainer = BaseTrainer(args, logger, writer, {})
     for i in range(40):
         loss, iou, dice = trainer.train(dataloader["labeled"], args.epoch, -1)
 
@@ -125,7 +118,8 @@ def al_cycle(args, logger):
         # validation
         dice, meaniou, assd = trainer.valid(dataloader["val"], -1, args.batch_size, args.input_size)
         logger.info(f"model EVAl | Dice:{dice} Mean IoU: {meaniou} assd: {assd} ")
-        torch.save(trainer.model.state_dict(), f"{args.checkpoint}/epoch={i*args.epoch}&dice={dice:.3f}&time={time.time()}.pth")
+        torch.save(trainer.model.state_dict(),
+                   f"{args.checkpoint}/epoch={i * args.epoch}&dice={dice:.3f}&time={time.time()}.pth")
     writer.flush()
     writer.close()
 
