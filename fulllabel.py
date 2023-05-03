@@ -30,7 +30,7 @@ def parse_arg():
     parser = ArgumentParser()
     parser.add_argument("--data-dir", type=str,
                         default="data/preprocessed")
-    parser.add_argument("--output-dir", type=str, default="output")
+    parser.add_argument("--output-dir", type=str, default="FullLabeled")
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--ndf", type=int, default=16)
     parser.add_argument("--seed", type=int, default=123)
