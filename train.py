@@ -33,7 +33,7 @@ def parse_arg():
                         default="data/preprocessed")
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--ndf", type=int, default=16)
-    parser.add_argument("--seed", type=int, default=123)
+    parser.add_argument("--seed", type=int, default=9527)
     parser.add_argument("--initial-labeled", type=int, default=1000)
     parser.add_argument("--budget", type=int, default=2600)
     parser.add_argument("--query", type=int, default=200)
