@@ -26,7 +26,6 @@ from dataset.SphDataset import Dataset2d, Dataset3d
 from model import build_model, initialize_weights
 from util.trainer import BaseTrainer
 
-
 def parse_arg():
     parser = ArgumentParser()
     parser.add_argument("--data-dir", type=str,
