@@ -31,7 +31,6 @@ def parse_arg():
     parser = ArgumentParser()
     parser.add_argument("--data-dir", type=str,
                         default="data/preprocessed")
-    parser.add_argument("--output-dir", type=str, default="output")
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--ndf", type=int, default=16)
     parser.add_argument("--seed", type=int, default=123)
@@ -50,6 +49,7 @@ def parse_arg():
                         default={"round": 10, "pool_size": 8, "constrative_sampler_size": 20})
     parser.add_argument("--trainer-param", type=dict, default={"num_augmentations": 3})
     args = parser.parse_args()
+    args.output_dir = args.query_strategy
     if not os.path.exists(args.output_dir):
         os.mkdir(args.output_dir)
     args.checkpoint = os.path.join(args.output_dir, "checkpoint")
