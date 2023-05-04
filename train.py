@@ -45,7 +45,7 @@ def parse_arg():
     parser.add_argument("--forget-weight", type=bool, default=False)
     parser.add_argument("--query-strategy", type=str, default="LeastConfidence")
     parser.add_argument("--query-strategy-param", type=dict,
-                        default={"round": 10, "pool_size": 8, "constrative_sampler_size": 20})
+                        default={"round": 10, "pool_size": 8, "constrative_sampler_size": 20,"difficulty_strategy":"max_entropy"})
     parser.add_argument("--trainer-param", type=dict, default={"num_augmentations": 3})
     args = parser.parse_args()
     args.output_dir = args.query_strategy

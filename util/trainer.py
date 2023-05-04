@@ -10,7 +10,6 @@ from util import label_smooth
 from scipy.ndimage import zoom
 from util.taalhelper import *
 import util.jitfunc as f
-from util import SPACING32
 from monai.losses import DiceCELoss
 from torch.optim import Adam
 from torch.optim.lr_scheduler import MultiStepLR
@@ -192,7 +191,7 @@ class TTATrainer(BaseTrainer):
         output, dice_loss = super().batch_forward(img, onehot_mask)
         all_output = augments_forward(img, self.model, output, int(self.additional_param["num_augmentations"]),
                                       self.args.device)
-        consistency_loss = torch.mean(f.JSD(all_output, SPACING32))
+        consistency_loss = torch.mean(f.JSD(all_output))
         loss = (consistency_loss + dice_loss) / 2
         return output, loss
 
@@ -249,3 +248,64 @@ class CoresetTrainer(BaseTrainer):
 
 
 ConstrativeTrainer = CoresetTrainer
+
+from torch.nn import functional as F
+
+
+class DEALTrainer(BaseTrainer):
+
+    def mask_mean(self, x, mask):
+        return x[mask].mean() if mask.sum() > 0 else torch.tensor([0.]).cuda()
+
+    def cal_class_weights(self, right_mask, error_mask):
+        pixel_num = torch.tensor([right_mask.sum(), error_mask.sum()]).float().cuda()
+        class_weights = 1 / torch.sqrt(pixel_num + 1)
+        class_weights = class_weights / class_weights.sum()
+        return class_weights
+
+    def weight_ce(self, soft_mask, target_error_mask):
+        loss = F.binary_cross_entropy(soft_mask.squeeze(1), target_error_mask, reduction='none')
+
+        error_mask = target_error_mask.bool()
+        right_mask = ~error_mask
+        weights = self.cal_class_weights(right_mask, error_mask)
+
+        loss = self.mask_mean(loss, right_mask) * weights[0] + self.mask_mean(loss, error_mask) * weights[1]
+        return loss
+
+    def generate_target_error_mask(self, output, target):
+        pred = torch.argmax(output, dim=1)
+        target_error_mask = (pred != target).float()  # error=1
+        target_error_mask[target == 0] = 0.  # ingore bg
+        return target_error_mask
+
+    def build_model(self):
+        from model.pam import PAM
+        self.pam = PAM().to(self.args.device)
+        self.pam.apply(lambda x: initialize_weights(x, 1))
+
+        model = UNetWithFeature(1, 2, self.args.ndf).to(self.args.device)
+        model.apply(lambda x: initialize_weights(x, 1))
+        return model
+
+    def build_criterion(self):
+        from monai.losses import DiceLoss
+        self.aux_loss = self.weight_ce
+        return DiceCELoss(include_background=True, softmax=False)
+
+    def build_optimizer(self):
+        import itertools
+        return Adam(
+            params=itertools.chain(self.model.parameters(), self.pam.parameters()),
+            lr=self.args.lr,
+            weight_decay=self.args.weight_decay)
+
+    def batch_forward(self, img, onehot_mask):
+        output, _ = self.model(img)
+        output = output.softmax(1)
+        dice_loss = self.criterion(output.softmax(1), onehot_mask)
+
+        difficult_map, _ = self.pam(output)
+        target_error_mask = self.generate_target_error_mask(output, onehot_mask[:, 1])
+        error_pred_loss = self.aux_loss(difficult_map, target_error_mask)
+        return output, 0.5 * (dice_loss + error_pred_loss)

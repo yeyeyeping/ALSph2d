@@ -120,7 +120,7 @@ def augments_forward(img, model, output, num_augmentations, device):
     for _ in range(num_augmentations):
         transformed_data, aug_dict = random_augmentation(img, flip_axis=2, rotaxis0=2, rotaxis1=3)
         transformed_data = transformed_data.to(device)
-        transformed_output = model(transformed_data)
+        transformed_output, _ = model(transformed_data)
         rev_output = reverse_augment_data(transformed_output, aug_dict['flip'], aug_dict['rot'], flip_axis=2,
                                           rot_axis0=2, rot_axis1=3).softmax(1)
         augment_output.append(rev_output)

@@ -27,6 +27,7 @@ def autofit_contrast_cdf(image, bins=40):
 
 
 def autofit_contrast(img_numpy: np.ndarray, bins=40, cutoff=0.001):
+    # reimplementation of automatically fitting constrast  algorithm in itksnap
     frequency, intensity = np.histogram(img_numpy, bins=bins)
     goal = img_numpy.size * cutoff
     front_idx, accum = 0, 0

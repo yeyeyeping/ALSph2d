@@ -4,7 +4,6 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 import util.jitfunc as f
-from util import SPACING32
 from util.taalhelper import augments_forward
 from torch import nn
 from sklearn.metrics import pairwise_distances
@@ -57,13 +56,6 @@ class QueryStrategy(object):
             self.unlabeled_dataloader.sampler.indices.remove(item)
 
 
-class RandomQuery(QueryStrategy):
-    def sample(self, query_num):
-        np.random.shuffle(self.unlabeled_dataloader.sampler.indices)
-        self.labeled_dataloader.sampler.indices.extend(self.unlabeled_dataloader.sampler.indices[:query_num])
-        del self.unlabeled_dataloader.sampler.indices[:query_num]
-
-
 class SimpleQueryStrategy(QueryStrategy):
     def __init__(self, unlabeled_dataloader: DataLoader, labeled_dataloader: DataLoader, **kwargs) -> None:
         super().__init__(unlabeled_dataloader, labeled_dataloader)
@@ -85,11 +77,18 @@ class SimpleQueryStrategy(QueryStrategy):
             img = img.to(device)
             output = self.model(img)
             score = self.compute_score(output).cpu()
-            assert score.shape[0] == img.shape[0], "shape mismatch!"
+            assert len(score) == len(img), "shape mismatch!"
             offset = batch_idx * self.unlabeled_dataloader.batch_size
-            idx_entropy = torch.column_stack([torch.arange(offset, offset + img.shape[0]), score])
+            idx_entropy = torch.column_stack([torch.arange(offset, offset + len(img)), score])
             q.extend(idx_entropy)
         return q.data
+
+
+class RandomQuery(QueryStrategy):
+    def sample(self, query_num):
+        np.random.shuffle(self.unlabeled_dataloader.sampler.indices)
+        self.labeled_dataloader.sampler.indices.extend(self.unlabeled_dataloader.sampler.indices[:query_num])
+        del self.unlabeled_dataloader.sampler.indices[:query_num]
 
 
 class MaxEntropy(SimpleQueryStrategy):
@@ -99,7 +98,7 @@ class MaxEntropy(SimpleQueryStrategy):
 
     def compute_score(self, model_output):
         model_output, _ = model_output
-        return f.max_entropy(model_output.softmax(dim=1), SPACING32)
+        return f.max_entropy(model_output.softmax(dim=1))
 
 
 class MarginConfidence(SimpleQueryStrategy):
@@ -118,8 +117,7 @@ class LeastConfidence(SimpleQueryStrategy):
 
     def compute_score(self, model_output):
         model_output, _ = model_output
-        output_max = torch.max(model_output.softmax(dim=1), dim=1)[0]
-        return output_max.mean(dim=(-2, -1))
+        return f.least_confidence(model_output.softmax(dim=1))
 
 
 class TAAL(QueryStrategy):
@@ -138,7 +136,7 @@ class TAAL(QueryStrategy):
             img = img.to(device)
             output, _ = self.model(img)
             aug_out = augments_forward(img, self.model, output.softmax(dim=1), self.num_augmentations, device)
-            score = f.JSD(aug_out, SPACING32).cpu()
+            score = f.JSD(aug_out).cpu()
             assert score.shape[0] == img.shape[0], "shape mismatch!"
             offset = batch_idx * self.unlabeled_dataloader.batch_size
             idx_entropy = torch.column_stack([torch.arange(offset, offset + img.shape[0]), score])
@@ -168,7 +166,7 @@ class BALD(QueryStrategy):
                 img = img.to(device)
                 output, _ = self.model(img)
                 out[round_] = output.softmax(dim=1)
-            score = f.JSD(out, SPACING32).cpu()
+            score = f.JSD(out).cpu()
             assert score.shape[0] == img.shape[0], "shape mismatch!"
             offset = batch_idx * self.unlabeled_dataloader.batch_size
             idx_entropy = torch.column_stack([torch.arange(offset, offset + img.shape[0]), score])
@@ -182,6 +180,7 @@ class LossPredictionQuery(SimpleQueryStrategy):
     def __init__(self, unlabeled_dataloader: DataLoader, labeled_dataloader: DataLoader, **kwargs) -> None:
         super().__init__(unlabeled_dataloader, labeled_dataloader, descending=True, **kwargs)
 
+    @torch.no_grad()
     def compute_score(self, model_output):
         self.trainer.loss_predition_module.eval()
         _, features = model_output
@@ -272,7 +271,7 @@ class UncertaintyBatchQuery(QueryStrategy):
         for batch_idx, (img, _) in enumerate(self.unlabeled_dataloader):
             img = img.to(device)
             output, _ = self.model(img)
-            score = f.max_entropy(output.softmax(dim=1), SPACING32).cpu()
+            score = f.max_entropy(output.softmax(dim=1)).cpu()
             assert score.shape[0] == img.shape[0], "shape mismatch!"
             offset = batch_idx * self.unlabeled_dataloader.batch_size
             idx_entropy = torch.column_stack([torch.arange(offset, offset + img.shape[0]), score])
@@ -350,3 +349,21 @@ class ConstrativeQuery(QueryStrategy):
         torch.cuda.empty_cache()
 
         return map(lambda x: x[0], sorted(q, key=lambda x: x[1])[:query_num])
+
+
+class DEALQuery(SimpleQueryStrategy):
+    def __init__(self, unlabeled_dataloader: DataLoader, labeled_dataloader: DataLoader, **kwargs) -> None:
+        funcstr = kwargs.get("difficulty_strategy", "max_entropy")
+        assert funcstr in f.__dict__, f"{funcstr} not implement"
+        if funcstr in ("max_entropy", "hisgram_entropy"):
+            super().__init__(unlabeled_dataloader, labeled_dataloader, descending=True, **kwargs)
+        else:
+            super().__init__(unlabeled_dataloader, labeled_dataloader, descending=False, **kwargs)
+        self.score_func = f.__dict__[funcstr]
+
+    @torch.no_grad()
+    def compute_score(self, model_output):
+        model_output, _ = model_output
+        self.trainer.pam.eval()
+        difficulty_map, _ = self.trainer.pam(model_output)
+        return self.score_func(model_output.softmax(1), difficulty_map)
