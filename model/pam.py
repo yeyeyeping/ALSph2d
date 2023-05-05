@@ -27,20 +27,16 @@ class PAM(nn.Module):
         B, C, H, W = x.size()
         x = x.softmax(dim=1)  # logits -> prob
 
-        if self.gamma < -0.01:
-            out = x
-            attention = None
-        else:
-            proj_value = x.view(B, -1, W * H)  # D reshape (B,C,H*W)
+        proj_value = x.view(B, -1, W * H)  # D reshape (B,C,H*W)
 
-            proj_query = x.view(B, -1, W * H).permute(0, 2, 1)  # B reshape & transpose (B,H*W,C)
-            proj_key = x.view(B, -1, W * H)  # C reshape (B,C,H*W)
-            energy = torch.bmm(proj_query, proj_key)  # batch matrix multiplication, (B, H*W, H*W)
-            attention = self.softmax(energy)
+        proj_query = x.view(B, -1, W * H).permute(0, 2, 1)  # B reshape & transpose (B,H*W,C)
+        proj_key = x.view(B, -1, W * H)  # C reshape (B,C,H*W)
+        energy = torch.bmm(proj_query, proj_key)  # batch matrix multiplication, (B, H*W, H*W)
+        attention = self.softmax(energy)
 
-            out = torch.bmm(proj_value, attention.permute(0, 2, 1))  # (B,C,H*W)
-            out = out.view(B, C, H, W)  # new attentioned features
+        out = torch.bmm(proj_value, attention.permute(0, 2, 1))  # (B,C,H*W)
+        out = out.view(B, C, H, W)  # new attentioned features
 
-            out = self.cnv1(self.gamma * out + x).sigmoid()
+        out = self.cnv1(self.gamma * out + x).sigmoid()
 
         return out, attention

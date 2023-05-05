@@ -276,7 +276,6 @@ class DEALTrainer(BaseTrainer):
     def generate_target_error_mask(self, output, target):
         pred = torch.argmax(output, dim=1)
         target_error_mask = (pred != target).float()  # error=1
-        target_error_mask[target == 0] = 0.  # ingore bg
         return target_error_mask
 
     def build_model(self):
