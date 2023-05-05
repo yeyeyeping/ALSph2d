@@ -87,7 +87,8 @@ class BaseTrainer(object):
 
     def batch_forward(self, img, onehot_mask):
         output, _ = self.model(img)
-        loss = self.criterion(output.softmax(dim=1), onehot_mask)
+        output = output.softmax(1)
+        loss = self.criterion(output, onehot_mask)
         return output, loss
 
     def train(self, dataloader, epochs, cycle):
