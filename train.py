@@ -8,23 +8,11 @@ import numpy as np
 import os
 import time
 import torch
-from monai.losses import DiceCELoss
-from monai.metrics import DiceMetric, MeanIoU, Cumulative, SurfaceDistanceMetric
-from monai.networks.utils import one_hot
-from scipy.ndimage import zoom
 from tensorboardX import SummaryWriter
-from torch import nn
-from torch.optim import Adam
-from torch.optim.lr_scheduler import MultiStepLR
 from torch.utils.data import DataLoader
-from torchvision.utils import make_grid
-from tqdm import tqdm
 from util import build_strategy
-from util import label_smooth
 from dataset.SphDataset import SubsetSampler
 from dataset.SphDataset import Dataset2d, Dataset3d
-from model import build_model, initialize_weights
-from util.trainer import BaseTrainer
 
 def parse_arg():
     parser = ArgumentParser()
@@ -93,9 +81,9 @@ def save_query_plot(folder, labeled_percent, dice_list):
 
 def get_dataloader(args):
     train_transform = A.Compose([
-        A.PadIfNeeded(512, 512),
+        A.Resize(512, 512),
         A.CropNonEmptyMaskIfExists(args.input_size, args.input_size, p=1),
-        A.RandomBrightnessContrast(),
+        A.GaussNoise(var_limit=0.05),
         A.HorizontalFlip(),
         A.VerticalFlip(),
         A.RandomRotate90(p=0.2),

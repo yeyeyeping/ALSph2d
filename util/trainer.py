@@ -1,12 +1,11 @@
 from monai.metrics import Cumulative, DiceMetric, MeanIoU, SurfaceDistanceMetric
 from tqdm import tqdm
 import time
+from util import AverageMeter
 from monai.networks.utils import one_hot
 from torchvision.utils import make_grid
 import numpy as np
 from model.LossPredictionModule import LossPredLoss
-from model.Unet import UNetWithFeature
-from util import label_smooth
 from scipy.ndimage import zoom
 from util.taalhelper import *
 import util.jitfunc as f
@@ -16,13 +15,7 @@ from torch.optim.lr_scheduler import MultiStepLR
 from model import build_model, initialize_weights, UNetWithDropout
 from util.metric import get_metric
 from model import UNetWithFeature
-
-
-class NoInfSurfaceDistanceMetric(SurfaceDistanceMetric):
-
-    def get_buffer(self):
-        buffer = super().get_buffer()
-        return buffer[torch.isinf(buffer) == 0].unsqueeze(1)
+from pymic.util.evaluation_seg import binary_dice, binary_iou
 
 
 class BaseTrainer(object):
@@ -81,9 +74,8 @@ class BaseTrainer(object):
         self.writer.add_image(f"{prefix}cycle{cycle}/{stage}/raw", raw_imgs, niter)
 
     def init_metric(self):
-        self.train_loss, self.batch_time, self.data_time = Cumulative(), Cumulative(), Cumulative()
-        self.dice_metric, self.meaniou_metric, self.assd_metric = DiceMetric(include_background=False), MeanIoU(
-            include_background=False), NoInfSurfaceDistanceMetric(include_background=False, symmetric=True)
+        self.train_loss, self.batch_time, self.data_time = AverageMeter(), AverageMeter(), AverageMeter()
+        self.dice_metric, self.meaniou_metric, self.assd_metric = AverageMeter(), AverageMeter(), AverageMeter()
 
     def batch_forward(self, img, onehot_mask):
         output, _ = self.model(img)
@@ -92,13 +84,13 @@ class BaseTrainer(object):
         return output, loss
 
     def train(self, dataloader, epochs, cycle):
+        tbar = tqdm(dataloader)
         self.train_loss.reset(), self.batch_time.reset(), self.data_time.reset(), self.dice_metric.reset(), self.meaniou_metric.reset()
         for epoch in range(epochs):
-            tbar = tqdm(dataloader)
             tlc = time.time()
             self.model.train()
             for btidx, (img, mask) in enumerate(tbar):
-                self.data_time.append(time.time() - tlc)
+                self.data_time.update(time.time() - tlc)
                 img, mask = img.to(self.args.device), mask.to(self.args.device)
                 mask_onehot = one_hot(mask, 2)
 
@@ -111,34 +103,34 @@ class BaseTrainer(object):
 
                 loss_item = loss.cpu().item()
 
-                self.train_loss.append(loss_item)
-                self.batch_time.append(time.time() - tlc)
+                self.train_loss.update(loss_item, output.size(0))
+                self.batch_time.update(time.time() - tlc)
 
                 tlc = time.time()
 
-                bin_mask = output.argmax(dim=1).unsqueeze(1)
+                bin_mask = output.argmax(dim=1).detach().cpu()
+                cpu_mask = mask.squeeze(1).detach().cpu()
+                dice, miou = binary_dice(bin_mask, cpu_mask), binary_iou(bin_mask, cpu_mask)
+                self.dice_metric.update(dice, output.size(0))
+                self.meaniou_metric.update(miou, output.size(0))
 
-                dice, miou = self.dice_metric(y_pred=bin_mask, y=mask_onehot), self.meaniou_metric(
-                    y_pred=bin_mask, y=mask_onehot)
-                dice, miou = dice[dice.isnan() == 0].mean(), miou[miou.isnan() == 0].mean()
                 tbar.set_description(
                     f"CYCLE {cycle} TRAIN {epoch}| Loss:{loss_item:.3f}  Dice:{dice:.2f} Mean IoU: {miou:.2f} "
-                    f"|B {self.batch_time.get_buffer().mean():.2f}) |D {self.data_time.get_buffer().mean():.2f}")
+                    f"|B {self.batch_time.average}) |D {self.data_time.average}")
 
                 if btidx % 50 == 0:
                     niter = epoch * len(dataloader)
                     self.logger.info(
                         f"CYCLE {cycle} TRAIN {epoch} iter {niter}| Loss:{loss_item:.3f}  Dice:{dice:.2f} Mean IoU: {miou:.2f}")
-                    self.writer_scalar(niter, cycle, self.train_loss.get_buffer().mean(),
-                                       self.meaniou_metric.aggregate().item(),
-                                       self.dice_metric.aggregate().item(), "Train")
-                    self.writer_image(bin_mask, cycle, niter, img, mask, "Train")
+                    self.writer_scalar(niter, cycle, self.train_loss.average,
+                                       self.meaniou_metric.average,
+                                       self.dice_metric.average, "Train")
+                    self.writer_image(bin_mask.unsqueeze(1), cycle, niter, img, mask, "Train")
 
-        avg_loss, mean_iou, avg_dice = self.train_loss.get_buffer().mean(), self.meaniou_metric.aggregate().item(), self.dice_metric.aggregate().item()
         tbar.set_description(
-            f"CYCLE {cycle} TRAIN AVG| Loss:{avg_loss:.3f}  Dice:{avg_dice:.3f} Mean IoU: {mean_iou:.3f}")
+            f"CYCLE {cycle} TRAIN AVG| Loss:{self.train_loss.avg}  Dice:{self.dice_metric.avg} Mean IoU: {self.meaniou_metric.avg}")
 
-        return avg_loss, mean_iou, avg_dice
+        return self.train_loss.average, self.dice_metric.average, self.meaniou_metric.avg
 
     def save(self, ckpath):
         torch.save(self.model.state_dict(), ckpath)
@@ -147,7 +139,9 @@ class BaseTrainer(object):
     def valid(self, dataloader, cycle, batch_size, input_size):
         self.model.eval()
         tbar = tqdm(dataloader)
-        dice_his, iou_his, assd_his = [], [], []
+        self.meaniou_metric.reset()
+        self.dice_metric.reset()
+        self.assd_metric.reset()
         for idx, (img, mask) in enumerate(tbar):
             img, mask = img[0], mask[0]
             h, w = img.shape[-2], img.shape[-1]
@@ -172,18 +166,13 @@ class BaseTrainer(object):
             tbar.set_description(
                 f"CYCLE {cycle} EVAl | Dice:{dice:.3f} Mean IoU: {iou:.2f} asd: {assd:.2f} ")
 
-            dice_his.append(dice)
-            iou_his.append(iou)
-            assd_his.append(assd)
-
-        avg_dice, avg_iou, avg_assd = \
-            np.round(np.mean(np.array(dice_his)), 3), \
-                np.round(np.mean(np.array(iou_his)), 3), \
-                np.round(np.mean(np.array(assd_his)), 3)
+            self.dice_metric.update(dice)
+            self.meaniou_metric.update(iou)
+            self.assd_metric.update(assd)
 
         tbar.set_description(
-            f"CYCLE {cycle} EVAl AVG| Dice:{avg_dice:.3f} Mean IoU: {avg_iou:.3f} asd: {avg_assd:.3f} ")
-        return avg_dice, avg_iou, avg_assd
+            f"CYCLE {cycle} EVAl AVG| Dice:{self.dice_metric.avg} Mean IoU: {self.meaniou_metric.avg} assd: {self.assd_metric.avg} ")
+        return self.dice_metric.avg, self.meaniou_metric.avg, self.assd_metric.avg
 
 
 class TTATrainer(BaseTrainer):
@@ -289,7 +278,6 @@ class DEALTrainer(BaseTrainer):
         return model
 
     def build_criterion(self):
-        from monai.losses import DiceLoss
         self.aux_loss = self.weight_ce
         return DiceCELoss(include_background=True, softmax=False)
 
