@@ -283,7 +283,6 @@ class DEALTrainer(BaseTrainer):
         return model
 
     def build_criterion(self):
-        from monai.losses import DiceLoss
         self.aux_loss = self.weight_ce
         return DiceCELoss(include_background=True, softmax=False)
 
