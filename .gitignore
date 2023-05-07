@@ -2,3 +2,4 @@ data/preprocessed
 .idea
 **/__pycache__
 output
+*.xlsx

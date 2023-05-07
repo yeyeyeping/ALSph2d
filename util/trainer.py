@@ -18,7 +18,6 @@ from util.metric import get_metric
 from model import UNetWithFeature
 
 
-
 class BaseTrainer(object):
     def __init__(self, args, logger, writer, param: dict = None) -> None:
         super().__init__()
@@ -112,9 +111,8 @@ class BaseTrainer(object):
 
                 bin_mask = output.argmax(dim=1).unsqueeze(1)
 
-                dice, miou = self.dice_metric(y_pred=bin_mask, y=mask_onehot), self.meaniou_metric(
-                    y_pred=bin_mask, y=mask_onehot)
-                dice, miou = dice[dice.isnan() == 0].mean(), miou[miou.isnan() == 0].mean()
+                dice, miou = self.dice_metric(y_pred=bin_mask, y=mask_onehot).mean(), self.meaniou_metric(
+                    y_pred=bin_mask, y=mask_onehot).mean()
                 tbar.set_description(
                     f"CYCLE {cycle} TRAIN {epoch}| Loss:{loss_item:.3f}  Dice:{dice:.2f} Mean IoU: {miou:.2f} "
                     f"|B {self.batch_time.get_buffer().mean():.2f}) |D {self.data_time.get_buffer().mean():.2f}")
