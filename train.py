@@ -83,7 +83,6 @@ def get_dataloader(args):
     train_transform = A.Compose([
         A.Resize(512, 512),
         A.CropNonEmptyMaskIfExists(args.input_size, args.input_size, p=1),
-        A.GaussNoise(var_limit=0.05),
         A.HorizontalFlip(),
         A.VerticalFlip(),
         A.RandomRotate90(p=0.2),
