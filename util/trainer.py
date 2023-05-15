@@ -240,7 +240,7 @@ class CoresetTrainer(BaseTrainer):
         return output, loss
 
 
-ConstrativeTrainer = CoresetTrainer
+ContrastiveTrainer = CoresetTrainer
 
 from torch.nn import functional as F
 

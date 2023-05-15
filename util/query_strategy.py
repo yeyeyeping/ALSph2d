@@ -290,7 +290,7 @@ class UncertaintyBatchQuery(QueryStrategy):
         return selected_batch[:, 0].astype(np.uint64)
 
 
-class ConstrativeQuery(QueryStrategy):
+class ContrastiveQuery(QueryStrategy):
     def __init__(self, unlabeled_dataloader: DataLoader, labeled_dataloader: DataLoader, **kwargs) -> None:
         super().__init__(unlabeled_dataloader, labeled_dataloader)
         assert "trainer" in kwargs
