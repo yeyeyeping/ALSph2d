@@ -296,6 +296,7 @@ class ConstrativeQuery(QueryStrategy):
         assert "trainer" in kwargs
         self.model = kwargs["trainer"].model
         self.k = int(kwargs.get("constrative_sampler_size", 20))
+        self.distance_measure = kwargs.get("distance_measure", "cosine")
         assert self.k < len(
             unlabeled_dataloader.sampler.indices), f"{self.k} > {len(labeled_dataloader.sampler.indices)}"
         pool_size = int(kwargs.get("pool_size", 12))
@@ -323,7 +324,7 @@ class ConstrativeQuery(QueryStrategy):
             unlabeled_feature_list.append(normal_feature.cpu().numpy())
         unlabeled_feature = np.concatenate(unlabeled_feature_list)
 
-        distances = pairwise_distances(unlabeled_feature, labeled_feature, metric="cosine")
+        distances = pairwise_distances(unlabeled_feature, labeled_feature, metric=self.distance_measure)
 
         del unlabeled_feature, labeled_feature
 

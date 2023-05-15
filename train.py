@@ -14,6 +14,7 @@ from util import build_strategy
 from dataset.SphDataset import SubsetSampler
 from dataset.SphDataset import Dataset2d, Dataset3d
 
+
 def parse_arg():
     parser = ArgumentParser()
     parser.add_argument("--data-dir", type=str,
@@ -33,7 +34,8 @@ def parse_arg():
     parser.add_argument("--forget-weight", type=bool, default=False)
     parser.add_argument("--query-strategy", type=str, default="LeastConfidence")
     parser.add_argument("--query-strategy-param", type=dict,
-                        default={"round": 10, "pool_size": 8, "constrative_sampler_size": 20,"difficulty_strategy":"max_entropy"})
+                        default={"round": 10, "distance_measure": "manhattan", "pool_size": 8,
+                                 "constrative_sampler_size": 20, "difficulty_strategy": "max_entropy"})
     parser.add_argument("--trainer-param", type=dict, default={"num_augmentations": 3})
     args = parser.parse_args()
     args.output_dir = args.query_strategy
