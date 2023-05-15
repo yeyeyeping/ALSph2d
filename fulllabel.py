@@ -33,7 +33,7 @@ def parse_arg():
     parser.add_argument("--output-dir", type=str, default="FullLabeled")
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--ndf", type=int, default=16)
-    parser.add_argument("--seed", type=int, default=123)
+    parser.add_argument("--seed", type=int, default=9527)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--epoch", type=int, default=5)
     parser.add_argument("--num-workers", type=int, default=4)
@@ -70,7 +70,6 @@ def get_dataloader(args):
     train_transform = A.Compose([
         A.PadIfNeeded(512, 512),
         A.CropNonEmptyMaskIfExists(args.input_size, args.input_size, p=1),
-        A.RandomBrightnessContrast(),
         A.HorizontalFlip(),
         A.VerticalFlip(),
         A.RandomRotate90(p=0.2),
