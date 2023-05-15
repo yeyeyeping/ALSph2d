@@ -39,13 +39,13 @@ def augment_data(img, flip=0, n_rotation=0, flip_axis=2, rot_axis0=2, rot_axis1=
         transform = T.ColorJitter(brightness=jitter, contrast=jitter, saturation=jitter, hue=jitter)
         img = transform(img)
 
-    if blur != 1:
-        transform = T.GaussianBlur(kernel_size=(blur, blur), sigma=(0.1, blur))
-        img = transform(img)
-
-    if mean_gaussian != 0 or std_gaussian != 0:
-        transform = AddGaussianNoise(mean_gaussian, std_gaussian)
-        img = transform(img)
+    # if blur != 1:
+    #     transform = T.GaussianBlur(kernel_size=(blur, blur), sigma=(0.1, blur))
+    #     img = transform(img)
+    #
+    # if mean_gaussian != 0 or std_gaussian != 0:
+    #     transform = AddGaussianNoise(mean_gaussian, std_gaussian)
+    #     img = transform(img)
 
     return img
 
