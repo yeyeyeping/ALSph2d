@@ -39,7 +39,8 @@ def parse_arg():
                                  "constrative_sampler_size": 20, "difficulty_strategy": "max_entropy"}')
     parser.add_argument("--trainer-param", type=str, default='{"num_augmentations": 3}')
     args = parser.parse_args()
-    args.output_dir = args.query_strategy
+    if args.output_dir == "":
+        args.output_dir = args.query_strategy
     args.query_strategy_param = eval(args.query_strategy_param)
     args.trainer_param = eval(args.trainer_param)
     if not os.path.exists(args.output_dir):
