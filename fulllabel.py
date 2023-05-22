@@ -68,7 +68,7 @@ def init_logger(args):
 
 def get_dataloader(args):
     train_transform = A.Compose([
-        A.PadIfNeeded(512, 512),
+        A.Resize(512, 512),
         A.CropNonEmptyMaskIfExists(args.input_size, args.input_size, p=1),
         A.HorizontalFlip(),
         A.VerticalFlip(),
@@ -118,7 +118,7 @@ def al_cycle(args, logger):
         dice, meaniou, assd = trainer.valid(dataloader["val"], -1, args.batch_size, args.input_size)
         logger.info(f"model EVAl | Dice:{dice} Mean IoU: {meaniou} assd: {assd} ")
         torch.save(trainer.model.state_dict(),
-                   f"{args.checkpoint}/epoch={i * args.epoch}&dice={dice:.3f}&time={time.time()}.pth")
+                   f"{args.checkpoint}/epoch={i * args.epoch}labeled1&dice={dice:.3f}&time={time.time()}.pth")
     writer.flush()
     writer.close()
 
