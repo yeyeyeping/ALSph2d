@@ -683,21 +683,20 @@ class OnlineMGTrainer(BaseTrainer):
                 outshape = [G * N, C, H, W]
                 labeled_output = torch.reshape(labeled_output, shape=outshape)
                 labeled_mask = torch.reshape(labeled_mask, shape=outshape)
-                dice_loss = self.criterion(labeled_output.softmax(1), labeled_mask)
-                loss = dice_loss
+                dice_loss = self.criterion(labeled_output, labeled_mask)
                 # pseudo learning for unlabeled data
-                # batched_output = torch.reshape(unlabeled_output, shape=outshape)
-                # pseudo_label = one_hot(batched_output.detach().argmax(dim=1).unsqueeze(1), 2)
-                # pseudo_label = pseudo_label.reshape([G, N, C, H, W])
-                # permed_label = pseudo_label[torch.randperm(len(pseudo_label))]
-                # pseudo_loss = self.criterion(unlabeled_output[0].softmax(1), permed_label[0])
-                # for idx in range(1, len(permed_label)):
-                #     pseudo_loss += self.criterion(unlabeled_output[idx].softmax(1), permed_label[idx])
+                batched_output = torch.reshape(unlabeled_output, shape=outshape)
+                pseudo_label = one_hot(batched_output.detach().argmax(dim=1).unsqueeze(1), 2)
+                pseudo_label = pseudo_label.reshape([G, N, C, H, W])
+                permed_label = pseudo_label[torch.randperm(len(pseudo_label))]
+                pseudo_loss = self.criterion(unlabeled_output[0], permed_label[0])
+                for idx in range(1, len(permed_label)):
+                    pseudo_loss += self.criterion(unlabeled_output[idx], permed_label[idx])
 
-                # pseudo_loss = pseudo_loss / len(unlabeled_output)
-                # alpha = linear_rampup(epoch, epochs)
+                pseudo_loss = pseudo_loss / len(unlabeled_output)
+                alpha = linear_rampup(epoch, epochs)
                 # loss = dice_loss + consistency_loss + alpha*pseudo_loss
-                # loss = dice_loss + alpha * pseudo_loss
+                loss = dice_loss + alpha * pseudo_loss
 
                 self.optimizer.zero_grad()
                 loss.backward()
