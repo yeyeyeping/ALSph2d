@@ -2,6 +2,8 @@ import random
 from argparse import ArgumentParser
 from os.path import join
 
+from util.trainer import OnlineMGTrainer
+from util.query_strategy import OnlineMGQuery
 import logging
 import matplotlib.pyplot as plt
 import numpy as np
@@ -9,8 +11,9 @@ import os
 import time
 import torch
 from tensorboardX import SummaryWriter
-from util import build_strategy
-from util import get_dataloader, save_query_plot
+from util import save_query_plot
+
+from util import get_dataloader
 
 
 def parse_arg():
@@ -29,8 +32,9 @@ def parse_arg():
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
+    parser.add_argument("--input-size", type=int, default=416)
     parser.add_argument("--forget-weight", type=bool, default=False)
-    parser.add_argument("--query-strategy", type=str, default="LeastConfidence")
+    parser.add_argument("--query-strategy", type=str, default="OnlineMG")
     parser.add_argument("--query-strategy-param", type=str,
                         default='{"round": 10, "distance_measure": "cosine", "pool_size": 8,\
                                  "constrative_sampler_size": 20, "difficulty_strategy": "max_entropy"}')
@@ -67,30 +71,29 @@ def init_logger(args):
 
 
 def al_cycle(args, logger):
+    from util.trainer import MGTrainer
+    from util.query_strategy import MGQuery
     writer = SummaryWriter(join(args.output_dir, "tensorboard"))
-    dataloader = get_dataloader(args)
+    dataloader = get_dataloader(args, with_pseudo=True)
 
     logger.info(
         f'Initial configuration: len(du): {len(dataloader["unlabeled"].sampler.indices)} '
         f'len(dl): {len(dataloader["labeled"].sampler.indices)} ')
 
-    strategy_type, trainer_type = build_strategy(args.query_strategy)
-    trainer = trainer_type(args, logger, writer, args.trainer_param)
+    trainer = MGTrainer(args, logger, writer, args.trainer_param)
 
-    query_strategy = strategy_type(dataloader["unlabeled"], dataloader["labeled"], trainer=trainer,
-                                   **args.query_strategy_param)
+    query_strategy = MGQuery(dataloader, trainer, args.query)
 
-    loss, iou, dice = trainer.train(dataloader, args.epoch, -1)
-
+    loss, iou, dice = trainer.semi_train(dataloader["labeled"], dataloader["unlabeled"], args.epoch, -1)
     logger.info(f"initial model TRAIN | avg_loss: {loss} Dice:{dice} Mean IoU: {iou} ")
-
-    # validation
-    dice, meaniou, assd = trainer.valid(dataloader["test"], -1, args.batch_size)
+    #
+    # # validation
+    dice, meaniou, assd = trainer.valid(dataloader["test"], -1, args.batch_size, args.input_size)
     logger.info(f"initial model EVAl | Dice:{dice} Mean IoU: {meaniou} assd: {assd} ")
-
+    #
     num_dataset = len(dataloader["labeled"].dataset)
     labeled_percent, dice_list = [], []
-
+    #
     ratio = round(len(dataloader["labeled"].sampler.indices) / num_dataset, 4)
     labeled_percent.append(ratio)
     dice_list.append(dice)
@@ -113,14 +116,17 @@ def al_cycle(args, logger):
         logger.info(f'add {query} samplers to labeled dataset')
 
         # retrain model on updated dataloader
-        loss, iou, dice = trainer.train(dataloader, args.epoch, cycle)
-        if loss == iou == dice == None:
-            break
-        logger.info(f"CYCLE {cycle} TRAIN | avg_loss: {loss} avg_dice:{dice} avg_mean_iou: {iou} ")
-
-        dice, meaniou, assd = trainer.valid(dataloader["test"], cycle, args.batch_size)
+        s_loss, s_iou, s_dice = trainer.semi_train(dataloader["labeled"], dataloader["unlabeled"], args.epoch, cycle)
+        logger.info(f"CYCLE {cycle} TRAIN | avg_loss: {s_loss} avg_dice:{s_dice} avg_mean_iou: {s_iou} ")
+        dice, meaniou, assd = trainer.valid(dataloader["test"], cycle, args.batch_size, args.input_size)
         logger.info(
             f'Cycle {cycle} EVAl | len(dl): {len(dataloader["labeled"].sampler.indices)} len(du): {len(dataloader["unlabeled"].sampler.indices)} |  avg_dice:{dice} avg_mean_iou: {meaniou} avg_assd: {assd} ')
+
+        loss, iou, dice = trainer.pseudo_train(dataloader["pseudo"], args.epoch, cycle)
+        logger.info(f"CYCLE {cycle} TRAIN(pseudo) | avg_loss: {loss} avg_dice:{dice} avg_mean_iou: {iou} ")
+        dice, meaniou, assd = trainer.valid(dataloader["test"], cycle, args.batch_size, args.input_size)
+        logger.info(
+            f'Cycle {cycle} EVAl(pseudo) | len(dl): {len(dataloader["labeled"].sampler.indices)} len(du): {len(dataloader["unlabeled"].sampler.indices)} |  avg_dice:{dice} avg_mean_iou: {meaniou} avg_assd: {assd} ')
 
         ratio = np.round(len(dataloader["labeled"].sampler.indices) / num_dataset, 4)
         labeled_percent.append(ratio)
@@ -128,6 +134,9 @@ def al_cycle(args, logger):
         save_query_plot(args.output_dir, labeled_percent, dice_list)
         # save checkpoint
         trainer.save(f"{args.checkpoint}/cycle={cycle}&labeled={ratio}&dice={dice:.3f}&time={time.time()}.pth")
+
+        if s_loss == s_iou == s_dice == None:
+            break
 
         if len(dataloader["unlabeled"].sampler.indices) == 0:
             break

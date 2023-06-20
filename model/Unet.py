@@ -3,7 +3,7 @@
 # Date:   2 Sep., 2021
 # Implementation of MIDeepSeg for interactive medical image segmentation and annotation.
 # Reference:
-#     X. Luo and G. Wang et al. MIDeepSeg: Minimally interactive segmentation of unseen objects
+#     X. Luo and G. Wang et test. MIDeepSeg: Minimally interactive segmentation of unseen objects
 #     from medical images using deep learning. Medical Image Analysis, 2021. DOI:https://doi.org/10.1016/j.media.2021.102102.
 import warnings
 
@@ -283,6 +283,8 @@ class UNetWithFeature(nn.Module):
         out = self.out(up_4)
 
         return out, [concat_1.detach(), concat_2.detach(), concat_3.detach(), concat_4.detach()]
+
+
 
 
 if __name__ == '__main__':

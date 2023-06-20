@@ -95,7 +95,7 @@ def preprocess_val(val_files, folder):
         out_lab_obj.SetOrigin(origin)
         out_lab_obj.SetSpacing(spacing)
         out_lab_obj.SetDirection(direction)
-        output_img_name, output_lab_name = f"preprocessed/val/image/{filename}", f"preprocessed/val/label/{filename}"
+        output_img_name, output_lab_name = f"preprocessed/test/image/{filename}", f"preprocessed/test/label/{filename}"
         sitk.WriteImage(out_obj, output_img_name)
         sitk.WriteImage(out_lab_obj, output_lab_name)
 
@@ -138,7 +138,7 @@ train, val, test = [], [], []
 for item in des["train"]:
     train.append(basename(item["image"]))
 
-for item in des["val"]:
+for item in des["test"]:
     val.append(basename(item["image"]))
 
 for item in des["test"]:

@@ -1,3 +1,6 @@
+import albumentations as A
+from dataset.SphDataset import Dataset2d
+from os.path import join
 import random
 from pymic.util.evaluation_seg import binary_dice
 import numpy as np
@@ -8,6 +11,10 @@ from util.taalhelper import augments_forward
 from torch import nn
 from sklearn.metrics import pairwise_distances
 from torch.nn import functional as F
+from util import SubsetSampler
+
+
+# todo: 前向过程应由trainer负责，这样可以避免不同模型输出不一样的问题
 
 
 class LimitSortedList(object):
@@ -368,3 +375,82 @@ class DEALQuery(SimpleQueryStrategy):
         self.trainer.pam.eval()
         difficulty_map, _ = self.trainer.pam(model_output)
         return self.score_func(model_output.softmax(1), difficulty_map)
+
+
+class MGQuery(QueryStrategy):
+
+    def __init__(self, loader,
+                 trainer, pseudo_num) -> None:
+
+        super().__init__(loader["unlabeled"], loader["labeled"])
+        self.pseudo_dataloader = loader["pseudo"]
+        self.model = trainer.model
+        self.pseudo_num = pseudo_num
+        train_transform = A.Compose([
+            A.HorizontalFlip(),
+            A.VerticalFlip(),
+            A.RandomRotate90(p=0.2),
+        ])
+        data_dir = self.unlabeled_dataloader.dataset.data_folder
+        self.dataset = Dataset2d(datafolder=join(data_dir),
+                                 transform=train_transform)
+        self.device = next(iter(self.model.parameters())).device
+
+    @torch.no_grad()
+    def select_dataset_idx(self, query_num):
+        self.model.eval()
+
+        q = LimitSortedList(limit=query_num, descending=True)
+        p = LimitSortedList(limit=self.pseudo_num, descending=False)
+        for batch_idx, (img, _) in enumerate(self.unlabeled_dataloader):
+            img = img.to(self.device)
+            # G N C H W
+            output = torch.stack(self.model(img)).softmax(2)
+            score = f.JSD(output).cpu()
+            assert len(score) == len(img), "shape mismatch!"
+            offset = batch_idx * self.unlabeled_dataloader.batch_size
+            idx_jsd = torch.column_stack([torch.arange(offset, offset + len(img)), score])
+            q.extend(idx_jsd)
+            p.extend(idx_jsd)
+        return q.data, p.data
+
+    @torch.no_grad()
+    def sample(self, query_num):
+        q, p = self.select_dataset_idx(query_num)
+        query_idx, pseudo_idx = self.convert2img_idx(q, self.unlabeled_dataloader), \
+            self.convert2img_idx(p, self.unlabeled_dataloader)
+        self.labeled_dataloader.sampler.indices.extend(query_idx)
+        for item in query_idx:
+            self.unlabeled_dataloader.sampler.indices.remove(item)
+
+        self.pseudo_dataloader.sampler.indices.extend(pseudo_idx)
+
+        aux_dataloader = torch.utils.data.DataLoader(self.dataset,
+                                                     batch_size=self.unlabeled_dataloader.batch_size,
+                                                     sampler=SubsetSampler(pseudo_idx),
+                                                     persistent_workers=True,
+                                                     pin_memory=True,
+                                                     prefetch_factor=4,
+                                                     num_workers=self.unlabeled_dataloader.num_workers)
+        # handle pseudo label
+        masks = np.empty(shape=(0, 416, 416))
+        self.model.eval()
+        for (img, _) in aux_dataloader:
+            img = img.to(self.device)
+            mask = torch.stack(self.model(img)).mean(0).softmax(0).argmax(1)
+            masks = np.concatenate([masks, mask.cpu().numpy()])
+        self.pseudo_dataloader.dataset.masks.update(zip(pseudo_idx, masks))
+
+        for item in pseudo_idx:
+            self.unlabeled_dataloader.sampler.indices.remove(item)
+
+
+class OnlineMGQuery(SimpleQueryStrategy):
+
+    def __init__(self, unlabeled_dataloader: DataLoader, labeled_dataloader: DataLoader, **kwargs) -> None:
+        super().__init__(unlabeled_dataloader, labeled_dataloader, descending=True, **kwargs)
+
+    @torch.no_grad()
+    def compute_score(self, model_output):
+        output = torch.stack(model_output)
+        return f.JSD(output)

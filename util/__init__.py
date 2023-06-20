@@ -1,7 +1,11 @@
 from typing import NewType
-
+from dataset.SphDataset import SubsetSampler
+import torch
 import scipy.ndimage as ndimage
 import numpy as np
+import albumentations as A
+from dataset.SphDataset import Dataset2d, Dataset3d
+from os.path import join
 
 
 class AverageMeter(object):
@@ -45,11 +49,32 @@ class AverageMeter(object):
         return np.round(self.avg, 3)
 
 
+def save_query_plot(folder, labeled_percent, dice_list):
+    import matplotlib.pyplot as plt
+    with open(f"{folder}/result.txt", "w") as fp:
+        fp.write("x:")
+        fp.write(str(labeled_percent))
+        fp.write("\ny:")
+        fp.write(str(dice_list))
+    plt.plot(labeled_percent, dice_list)
+    plt.savefig(f"{folder}/result.jpg")
+
+
+def get_samplers(data_num, initial_labeled, with_pseudo=False):
+    data_indice = list(range(data_num))
+    np.random.shuffle(data_indice)
+    retval = (SubsetSampler(data_indice[:initial_labeled]), SubsetSampler(data_indice[initial_labeled:]))
+    if with_pseudo:
+        retval = (*retval, SubsetSampler([]))
+    return retval
+
+
 def build_strategy(strategy: str):
     import util.query_strategy as qs
     from util.trainer import BaseTrainer, TTATrainer, BALDTrainer, LearningLossTrainer, CoresetTrainer, \
-        ContrastiveTrainer, DEALTrainer
-    from util.query_strategy import TAAL, BALD, LossPredictionQuery, CoresetQuery, ContrastiveQuery, DEALQuery
+        ContrastiveTrainer, DEALTrainer, URPCTrainer, OnlineMGTrainer
+    from util.query_strategy import TAAL, BALD, LossPredictionQuery, CoresetQuery, ContrastiveQuery, DEALQuery, \
+        OnlineMGQuery
 
     if strategy in qs.__dict__:
         strategy = qs.__dict__[strategy]
@@ -69,6 +94,9 @@ def build_strategy(strategy: str):
         trainer = ContrastiveTrainer
     elif strategy == DEALQuery:
         trainer = DEALTrainer
+    elif strategy == OnlineMGQuery:
+        trainer = OnlineMGTrainer
+
     return strategy, trainer
 
 
@@ -113,6 +141,92 @@ def label_smooth(volume):
             volume[d] = volume_d
     return volume
 
+
+def get_dataloader(args, with_pseudo=False):
+    train_transform = A.Compose([
+        A.HorizontalFlip(),
+        A.VerticalFlip(),
+        A.RandomRotate90(p=0.2),
+    ])
+    dataset_train, dataset_val = Dataset2d(datafolder=join(args.data_dir, "train"),
+                                           transform=train_transform), \
+        Dataset3d(folder=join(args.data_dir, "test"))
+    labeled_sampler, *unlabeled_sampler = get_samplers(len(dataset_train), args.initial_labeled,
+                                                       with_pseudo=with_pseudo)
+    retval = {}
+    if with_pseudo:
+        from dataset.SphDataset import PseudoDataset2d
+        unlabeled_sampler, pseudo_sampler = unlabeled_sampler
+        # dpseudo = torch.utils.data.DataLoader(PseudoDataset2d(datafolder=join(args.data_dir, "train"),
+        #                                                       transform=train_transform),
+        #                                       batch_size=args.batch_size,
+        #                                       sampler=pseudo_sampler)
+        dpseudo = torch.utils.data.DataLoader(PseudoDataset2d(datafolder=join(args.data_dir, "train"),
+                                                              transform=train_transform),
+                                              batch_size=args.batch_size,
+                                              sampler=pseudo_sampler,
+                                              persistent_workers=True,
+                                              pin_memory=True,
+                                              prefetch_factor=4,
+                                              num_workers=args.num_workers)
+        retval["pseudo"] = dpseudo
+    else:
+        unlabeled_sampler = unlabeled_sampler[0]
+
+    dulabeled = torch.utils.data.DataLoader(dataset_train,
+                                            batch_size=args.batch_size,
+                                            sampler=unlabeled_sampler,
+                                            persistent_workers=True,
+                                            pin_memory=True,
+                                            prefetch_factor=4,
+                                            num_workers=args.num_workers)
+
+    dlabeled = torch.utils.data.DataLoader(dataset_train,
+                                           batch_size=args.batch_size,
+                                           sampler=labeled_sampler,
+                                           persistent_workers=True,
+                                           pin_memory=True,
+                                           prefetch_factor=4,
+                                           num_workers=args.num_workers)
+
+    dval = torch.utils.data.DataLoader(dataset_val,
+                                       batch_size=1,
+                                       persistent_workers=True,
+                                       pin_memory=True,
+                                       prefetch_factor=4,
+                                       num_workers=args.num_workers)
+
+    return {
+        **retval,
+        "labeled": dlabeled,
+        "unlabeled": dulabeled,
+        "test": dval
+    }
+
+
+
+def sigmoid_rampup(current, rampup_length):
+    """Exponential rampup from https://arxiv.org/abs/1610.02242"""
+    if rampup_length == 0:
+        return 1.0
+    else:
+        current = np.clip(current, 0.0, rampup_length)
+        phase = 1.0 - current / rampup_length
+        return float(np.exp(-5.0 * phase * phase))
+
+
+def linear_rampup(current, rampup_length):
+    """Linear rampup"""
+    assert current >= 0 and rampup_length >= 0
+    if current >= rampup_length:
+        return 1.0
+    else:
+        return current / rampup_length
+
+
+def get_current_consistency_weight(epoch):
+    # Consistency ramp-up from https://arxiv.org/abs/1610.02242
+    return 0.1 * sigmoid_rampup(epoch, 80)
 
 if __name__ == '__main__':
     print(build_strategy("MaxEntropy"))

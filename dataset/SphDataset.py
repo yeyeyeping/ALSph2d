@@ -28,10 +28,10 @@ class Dataset3d(Dataset):
                                                                             name)
         img_obj, mask_obj = sitk.GetArrayFromImage(sitk.ReadImage(image_path)), sitk.GetArrayFromImage(
             sitk.ReadImage(mask_path))
-        #强度标准化
+        # 强度标准化
         img_obj = np.asarray((img_obj - img_obj.mean()) / img_obj.std(), dtype=np.float32)
-        #slice标准化
-        img_obj = (img_obj - img_obj.mean(axis=(1,2), keepdims=True)) / img_obj.std(axis=(1,2), keepdims=True)
+        # slice标准化
+        img_obj = (img_obj - img_obj.mean(axis=(1, 2), keepdims=True)) / img_obj.std(axis=(1, 2), keepdims=True)
         mask_obj = np.asarray(mask_obj, dtype=np.uint8)
         return torch.tensor(img_obj, dtype=torch.float32).unsqueeze(1), torch.tensor(mask_obj > 0.5,
                                                                                      dtype=torch.long).unsqueeze(1)
@@ -62,3 +62,52 @@ class Dataset2d(Dataset):
 
         return torch.tensor(data, dtype=torch.float32).unsqueeze(0), torch.tensor(label == 255,
                                                                                   dtype=torch.long).unsqueeze(0)
+
+
+class PseudoDataset2d(Dataset):
+    def __init__(self, datafolder: str, transform=None) -> None:
+        assert os.path.exists(datafolder), datafolder
+        super().__init__()
+        self.data_folder = datafolder
+        self.transforms = transform
+        assert exists(datafolder)
+        assert exists((join(datafolder, "image")))
+        self.jpg_data = os.listdir(os.path.join(datafolder, "image"))
+        self.masks = {}
+
+    def __len__(self):
+        return len(self.jpg_data)
+
+    def __getitem__(self, index):
+        data_name = self.jpg_data[index]
+        data_path = join(self.data_folder, "image", data_name)
+        data = np.asarray(Image.open(data_path).convert("L"))
+        data = (data - data.mean()) / data.std()
+        label = self.masks[index]
+        if self.transforms is not None:
+            transformed = self.transforms(image=data, mask=label)
+            data, label = transformed["image"], transformed["mask"]
+
+        return torch.tensor(data, dtype=torch.float32).unsqueeze(0), torch.tensor(label == 255,
+                                                                                  dtype=torch.long).unsqueeze(0)
+
+
+if __name__ == '__main__':
+    import albumentations as A
+    from torch.utils.data import DataLoader
+
+    train_transform = A.Compose([
+        A.HorizontalFlip(),
+        A.VerticalFlip(),
+        A.RandomRotate90(p=0.2),
+    ])
+    pseudo_dataset = PseudoDataset2d(datafolder=join("/home/yeep/project/py/ALSph2d/data/preprocessed", "train"),
+                                     transform=train_transform)
+    dataloader = DataLoader(pseudo_dataset, batch_size=32,
+                            sampler=[1, 2, 3],
+                            persistent_workers=True,
+                            pin_memory=True,
+                            prefetch_factor=4,
+                            num_workers=8)
+
+    print(pseudo_dataset[[1,2]].shape)

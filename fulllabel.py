@@ -76,7 +76,7 @@ def get_dataloader(args):
     ])
     dataset_train, dataset_val = Dataset2d(datafolder=os.path.join(args.data_dir, "train"),
                                            transform=train_transform), Dataset3d(
-        folder=os.path.join(args.data_dir, "val"))
+        folder=os.path.join(args.data_dir, "test"))
 
     dulabeled = torch.utils.data.DataLoader(dataset_train,
                                             batch_size=args.batch_size,
@@ -101,7 +101,7 @@ def get_dataloader(args):
     return {
         "labeled": dlabeled,
         "unlabeled": dulabeled,
-        "val": dval
+        "test": dval
     }
 
 
@@ -115,7 +115,7 @@ def al_cycle(args, logger):
 
         logger.info(f"model TRAIN | avg_loss: {loss} Dice:{dice} Mean IoU: {iou} ")
         # validation
-        dice, meaniou, assd = trainer.valid(dataloader["val"], -1, args.batch_size, args.input_size)
+        dice, meaniou, assd = trainer.valid(dataloader["test"], -1, args.batch_size, args.input_size)
         logger.info(f"model EVAl | Dice:{dice} Mean IoU: {meaniou} assd: {assd} ")
         torch.save(trainer.model.state_dict(),
                    f"{args.checkpoint}/epoch={i * args.epoch}labeled1&dice={dice:.3f}&time={time.time()}.pth")
