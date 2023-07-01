@@ -434,7 +434,7 @@ class MGTrainer(BaseTrainer):
             "class_num": 2,
             "in_chns": 1,
             "block_type": "UNetBlock",
-            "feature_chns": [16, 32, 64, 128],
+            "feature_chns": [64, 128, 256, 512],
             "feature_grps": [4, 4, 4, 4, 1],
             "norm_type": "group_norm",
             "acti_func": "relu",
@@ -478,7 +478,7 @@ class MGTrainer(BaseTrainer):
                 labeled_output, unlabeled_output = output[:, :btsize], output[:, btsize:],
 
                 # dicece loss for labeled data
-                labeled_mask = mask_onehot[None].repeat_interleave(len(labeled_output), 0)
+                labeled_mask = mask_onehot[None].repeat(len(labeled_output), 1, 1, 1, 1)
                 G, N, C, H, W = labeled_output.shape
                 outshape = [G * N, C, H, W]
                 labeled_output = torch.reshape(labeled_output, shape=outshape)
@@ -678,7 +678,7 @@ class OnlineMGTrainer(BaseTrainer):
                 labeled_output, unlabeled_output = output[:, :btsize], output[:, btsize:],
 
                 # dicece loss for labeled data
-                labeled_mask = mask_onehot[None].repeat_interleave(len(labeled_output), 0)
+                labeled_mask = mask_onehot[None].repeat(len(labeled_output), 1, 1, 1, 1)
                 G, N, C, H, W = labeled_output.shape
                 outshape = [G * N, C, H, W]
                 labeled_output = torch.reshape(labeled_output, shape=outshape)

@@ -3,6 +3,7 @@ import torch.nn as nn
 from model.MGNet.unet2dres import get_acti_func, get_deconv_layer, get_unet_block
 from monai.losses import DiceCELoss
 
+
 def interleaved_concate(f1, f2):
     f1_shape = list(f1.shape)
     f2_shape = list(f2.shape)
@@ -172,6 +173,7 @@ if __name__ == '__main__':
         "deep_supervision": False,
     }
     net = MGNet(params).cuda()
+    x = torch.randn(16, 1, 96, 96, device=torch.device("cuda:0"))
+    y = net(x)
 
-
-
+    print()

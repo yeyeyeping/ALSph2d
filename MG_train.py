@@ -27,14 +27,14 @@ def parse_arg():
     parser.add_argument("--initial-labeled", type=int, default=1000)
     parser.add_argument("--budget", type=int, default=2600)
     parser.add_argument("--query", type=int, default=200)
-    parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--epoch", type=int, default=50)
     parser.add_argument("--num-workers", type=int, default=4)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--input-size", type=int, default=416)
     parser.add_argument("--forget-weight", type=bool, default=False)
-    parser.add_argument("--query-strategy", type=str, default="OnlineMG")
+    parser.add_argument("--query-strategy", type=str, default="OfflineMG")
     parser.add_argument("--query-strategy-param", type=str,
                         default='{"round": 10, "distance_measure": "cosine", "pool_size": 8,\
                                  "constrative_sampler_size": 20, "difficulty_strategy": "max_entropy"}')
