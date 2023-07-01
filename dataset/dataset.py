@@ -13,7 +13,7 @@ from scipy import ndimage
 from torch.utils.data.sampler import Sampler
 import matplotlib.pyplot as plt
 from PIL import Image
-
+import albumentations
 
 class BaseDataSets(Dataset):
     def __init__(

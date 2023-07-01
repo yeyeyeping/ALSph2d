@@ -631,7 +631,7 @@ class OnlineMGTrainer(BaseTrainer):
 
     def __init__(self, args, logger, writer, param: dict = None) -> None:
         self.param = {
-            "class_num": 2,
+            "class_num": 4,
             "in_chns": 1,
             "block_type": "UNetBlock",
             "feature_chns": [64, 128, 256, 512],
@@ -667,13 +667,13 @@ class OnlineMGTrainer(BaseTrainer):
             for btidx, (img, mask) in enumerate(tbar):
                 tlc = time.time()
                 img, mask = img.to(self.args.device), mask.to(self.args.device)
-                mask_onehot = one_hot(mask[:btsize], 2)
+                mask_onehot = one_hot(mask[:btsize], 4)
                 outputlist = self.model(img)
                 # Group x Batch x C x H x W
                 output = torch.stack(outputlist).softmax(dim=2)
 
                 # consistency loss for all data
-                consistency_loss = torch.mean(f.JSD(output))
+                # consistency_loss = torch.mean(f.JSD(output))
 
                 labeled_output, unlabeled_output = output[:, :btsize], output[:, btsize:],
 
@@ -683,21 +683,20 @@ class OnlineMGTrainer(BaseTrainer):
                 outshape = [G * N, C, H, W]
                 labeled_output = torch.reshape(labeled_output, shape=outshape)
                 labeled_mask = torch.reshape(labeled_mask, shape=outshape)
-                dice_loss = self.criterion(labeled_output.softmax(1), labeled_mask)
-                loss = dice_loss
+                dice_loss = self.criterion(labeled_output, labeled_mask)
                 # pseudo learning for unlabeled data
-                # batched_output = torch.reshape(unlabeled_output, shape=outshape)
-                # pseudo_label = one_hot(batched_output.detach().argmax(dim=1).unsqueeze(1), 2)
-                # pseudo_label = pseudo_label.reshape([G, N, C, H, W])
-                # permed_label = pseudo_label[torch.randperm(len(pseudo_label))]
-                # pseudo_loss = self.criterion(unlabeled_output[0].softmax(1), permed_label[0])
-                # for idx in range(1, len(permed_label)):
-                #     pseudo_loss += self.criterion(unlabeled_output[idx].softmax(1), permed_label[idx])
+                batched_output = torch.reshape(unlabeled_output, shape=outshape)
+                pseudo_label = one_hot(batched_output.detach().argmax(dim=1).unsqueeze(1), 4)
+                pseudo_label = pseudo_label.reshape([G, N, C, H, W])
+                permed_label = pseudo_label[torch.randperm(len(pseudo_label))]
+                pseudo_loss = self.criterion(unlabeled_output[0], permed_label[0])
+                for idx in range(1, len(permed_label)):
+                    pseudo_loss += self.criterion(unlabeled_output[idx], permed_label[idx])
 
-                # pseudo_loss = pseudo_loss / len(unlabeled_output)
-                # alpha = linear_rampup(epoch, epochs)
+                pseudo_loss = pseudo_loss / len(unlabeled_output)
+                alpha = linear_rampup(epoch, epochs)
                 # loss = dice_loss + consistency_loss + alpha*pseudo_loss
-                # loss = dice_loss + alpha * pseudo_loss
+                loss = dice_loss + alpha * pseudo_loss
 
                 self.optimizer.zero_grad()
                 loss.backward()
@@ -709,8 +708,8 @@ class OnlineMGTrainer(BaseTrainer):
                 self.train_loss.append(loss_item)
 
                 preds = torch.mean(output, dim=0)
-                bin_mask = preds[:btsize].argmax(dim=1).unsqueeze(1)
-
+                pred_mask = preds[:btsize].argmax(dim=1).unsqueeze(1)
+                bin_mask = one_hot(pred_mask, 4)
                 dice, miou = self.dice_metric(y_pred=bin_mask, y=mask_onehot).mean(), self.meaniou_metric(
                     y_pred=bin_mask, y=mask_onehot).mean()
 
@@ -728,7 +727,7 @@ class OnlineMGTrainer(BaseTrainer):
                     self.writer_scalar(niter, cycle, self.train_loss.get_buffer().mean(),
                                        self.meaniou_metric.aggregate().item(),
                                        self.dice_metric.aggregate().item(), "Train")
-                    self.writer_image(bin_mask, cycle, niter, img, mask, "Train")
+                    self.writer_image(pred_mask, cycle, niter, img, mask, "Train")
 
         avg_loss, mean_iou, avg_dice = self.train_loss.get_buffer().mean(), self.meaniou_metric.aggregate().item(), self.dice_metric.aggregate().item()
         tbar.set_description(

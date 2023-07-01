@@ -4,7 +4,6 @@ import torch
 import scipy.ndimage as ndimage
 import numpy as np
 import albumentations as A
-from dataset.SphDataset import Dataset2d, Dataset3d
 from os.path import join
 
 
@@ -61,6 +60,7 @@ def save_query_plot(folder, labeled_percent, dice_list):
 
 
 def get_samplers(data_num, initial_labeled, with_pseudo=False):
+    initial_labeled = int(data_num * initial_labeled)
     data_indice = list(range(data_num))
     np.random.shuffle(data_indice)
     retval = (SubsetSampler(data_indice[:initial_labeled]), SubsetSampler(data_indice[initial_labeled:]))
@@ -143,14 +143,23 @@ def label_smooth(volume):
 
 
 def get_dataloader(args, with_pseudo=False):
+    from dataset.ACDCDataset import ACDCDataset2d, ACDCDataset3d
     train_transform = A.Compose([
+        A.PadIfNeeded(256, 256),
         A.HorizontalFlip(),
         A.VerticalFlip(),
         A.RandomRotate90(p=0.2),
+        A.RandomCrop(192, 192),
+        A.GaussNoise(0.005, 0, per_channel=False),
     ])
-    dataset_train, dataset_val = Dataset2d(datafolder=join(args.data_dir, "train"),
-                                           transform=train_transform), \
-        Dataset3d(folder=join(args.data_dir, "test"))
+    # train_transform = A.Compose([
+    #     A.HorizontalFlip(),
+    #     A.VerticalFlip(),
+    #     A.RandomRotate90(p=0.2),
+    # ])
+    dataset_train, dataset_val = ACDCDataset2d(trainfolder=join(args.data_dir, "train"),
+                                               transform=train_transform), \
+        ACDCDataset3d(folder=join(args.data_dir, "test"))
     labeled_sampler, *unlabeled_sampler = get_samplers(len(dataset_train), args.initial_labeled,
                                                        with_pseudo=with_pseudo)
     retval = {}
@@ -204,7 +213,6 @@ def get_dataloader(args, with_pseudo=False):
     }
 
 
-
 def sigmoid_rampup(current, rampup_length):
     """Exponential rampup from https://arxiv.org/abs/1610.02242"""
     if rampup_length == 0:
@@ -227,6 +235,7 @@ def linear_rampup(current, rampup_length):
 def get_current_consistency_weight(epoch):
     # Consistency ramp-up from https://arxiv.org/abs/1610.02242
     return 0.1 * sigmoid_rampup(epoch, 80)
+
 
 if __name__ == '__main__':
     print(build_strategy("MaxEntropy"))

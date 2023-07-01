@@ -29,7 +29,7 @@ class Dataset3d(Dataset):
         img_obj, mask_obj = sitk.GetArrayFromImage(sitk.ReadImage(image_path)), sitk.GetArrayFromImage(
             sitk.ReadImage(mask_path))
         # 强度标准化
-        img_obj = np.asarray((img_obj - img_obj.mean()) / img_obj.std(), dtype=np.float32)
+        img_obj = np.asarray((img_obj - img_obj.min()) / (img_obj.max() - img_obj.min()), dtype=np.float32)
         # slice标准化
         img_obj = (img_obj - img_obj.mean(axis=(1, 2), keepdims=True)) / img_obj.std(axis=(1, 2), keepdims=True)
         mask_obj = np.asarray(mask_obj, dtype=np.uint8)
@@ -55,6 +55,7 @@ class Dataset2d(Dataset):
         data_path, label_path = join(self.data_folder, "image", data_name), join(self.data_folder, "label", label_name)
         data, label = Image.open(data_path).convert("L"), Image.open(label_path).convert("L")
         data, label = np.asarray(data, dtype=np.float32), np.asarray(label, dtype=np.uint8)
+        data = (data - data.min()) / (data.max() - data.min())
         data = (data - data.mean()) / data.std()
         if self.transforms is not None:
             transformed = self.transforms(image=data, mask=label)
@@ -110,4 +111,4 @@ if __name__ == '__main__':
                             prefetch_factor=4,
                             num_workers=8)
 
-    print(pseudo_dataset[[1,2]].shape)
+    print(pseudo_dataset[[1, 2]].shape)

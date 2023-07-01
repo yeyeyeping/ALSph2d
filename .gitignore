@@ -1,5 +1,10 @@
 data/preprocessed
+/data/ACDCprecessed/
+/data/ACDC/
 .idea
 **/__pycache__
 output
 *.xlsx
+
+/T/
+

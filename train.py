@@ -16,14 +16,14 @@ from util import get_dataloader, save_query_plot
 def parse_arg():
     parser = ArgumentParser()
     parser.add_argument("--data-dir", type=str,
-                        default="data/preprocessed")
+                        default="data/ACDCprecessed")
     parser.add_argument("--output-dir", type=str, default="")
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--ndf", type=int, default=16)
     parser.add_argument("--seed", type=int, default=9527)
-    parser.add_argument("--initial-labeled", type=int, default=1000)
-    parser.add_argument("--budget", type=int, default=2600)
-    parser.add_argument("--query", type=int, default=200)
+    parser.add_argument("--initial-labeled", type=float, default=0.1)
+    parser.add_argument("--budget", type=int, default=0.3)
+    parser.add_argument("--query", type=int, default=0.01)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--epoch", type=int, default=50)
     parser.add_argument("--num-workers", type=int, default=4)
@@ -97,8 +97,8 @@ def al_cycle(args, logger):
     trainer.save(f"{args.checkpoint}/cycle={-1}&labeled={ratio}&dice={dice:.3f}&time={time.time()}.pth")
 
     cycle = 0
-    budget = args.budget
-    query = args.query
+    budget = int(args.budget * num_dataset)
+    query = int(args.query * num_dataset)
     total_cycle = (budget // query) + 1
     while budget > 0:
         logger.info(f"cycle {cycle} | budget : {budget} query : {query}")
