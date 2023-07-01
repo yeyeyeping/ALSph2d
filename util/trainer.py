@@ -694,7 +694,7 @@ class OnlineMGTrainer(BaseTrainer):
                     pseudo_loss += self.criterion(unlabeled_output[idx], permed_label[idx])
 
                 pseudo_loss = pseudo_loss / len(unlabeled_output)
-                alpha = linear_rampup(epoch, epochs)
+                alpha = linear_rampup(epoch, epochs) * 0.1
                 # loss = dice_loss + consistency_loss + alpha*pseudo_loss
                 loss = dice_loss + alpha * pseudo_loss
 
