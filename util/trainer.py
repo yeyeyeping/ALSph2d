@@ -14,7 +14,7 @@ from monai.losses import DiceCELoss
 from torch.optim import Adam
 from torch.optim.lr_scheduler import MultiStepLR
 from model import build_model, initialize_weights, UNetWithDropout
-from util.metric import get_metric
+from util.metric import get_metric, get_multi_class_metric, get_classwise_dice
 from model import UNetWithFeature
 from util import get_current_consistency_weight, linear_rampup
 
@@ -44,7 +44,13 @@ class BaseTrainer(object):
         return Adam(self.model.parameters(), lr=self.args.lr, weight_decay=self.args.weight_decay)
 
     def build_sched(self, optimizer):
-        return MultiStepLR(optimizer, milestones=[0.4 * self.args.epoch, 0.7 * self.args.epoch], gamma=0.5)
+        epochs = self.args.budget / self.args.query * self.args.epoch
+        return MultiStepLR(optimizer, milestones=[0.1 * epochs,
+                                                  0.25 * epochs,
+                                                  0.45 * epochs,
+                                                  0.7 * epochs,
+                                                  0.85 * epochs,
+                                                  0.95 * epochs], gamma=0.5)
 
     def build_model(self):
         model = UNetWithFeature(1, 2, self.args.ndf).to(self.args.device)
@@ -55,11 +61,10 @@ class BaseTrainer(object):
         # self.model.apply(lambda param: initialize_weights(param, p=1 - cycle / total_cycle))
         self.model.apply(lambda param: initialize_weights(param, p=1))
 
-    def writer_scalar(self, niter, cycle, train_loss, mIoU, dice, stage, assd: int = None, prefix: str = None):
+    def writer_scalar(self, niter, cycle, train_loss, dice, stage, assd: int = None, prefix: str = None):
         prefix = prefix + "/" if prefix is not None else ""
         self.writer.add_scalar(f"{prefix}cycle{cycle}/{stage}/loss", train_loss, niter)
         self.writer.add_scalar(f"{prefix}cycle{cycle}/{stage}/dice", dice, niter)
-        self.writer.add_scalar(f"{prefix}cycle{cycle}/{stage}/mIoU", mIoU, niter)
         if assd is not None:
             self.writer.add_scalar(f"{prefix}cycle{cycle}/{stage}/assd", assd, niter)
 
@@ -650,7 +655,7 @@ class OnlineMGTrainer(BaseTrainer):
         model.apply(lambda param: initialize_weights(param, 1))
         return model
 
-    def semi_train(self, labeled_loader, unlabeled_loader, epochs, cycle):
+    def semi_train(self, labeled_loader, unlabeled_loader, test_loader, epochs, cycle):
         from dataset.dataset import TwoStreamBatchSampler
         from torch.utils.data import DataLoader
         labeled_idx, unlabeled_idx = labeled_loader.sampler.indices, unlabeled_loader.sampler.indices
@@ -660,7 +665,8 @@ class OnlineMGTrainer(BaseTrainer):
         batch_sampler = TwoStreamBatchSampler(labeled_idx, unlabeled_idx, labeled_loader.batch_size, btsize)
         trainloader = DataLoader(labeled_loader.dataset, batch_sampler=batch_sampler,
                                  num_workers=4, pin_memory=True, persistent_workers=True, prefetch_factor=4, )
-        self.train_loss.reset(), self.batch_time.reset(), self.dice_metric.reset(), self.meaniou_metric.reset()
+        self.train_loss.reset(), self.batch_time.reset()
+        dice_his = []
         for epoch in range(epochs):
             tbar = tqdm(trainloader)
             self.model.train()
@@ -694,7 +700,7 @@ class OnlineMGTrainer(BaseTrainer):
                     pseudo_loss += self.criterion(unlabeled_output[idx], permed_label[idx])
 
                 pseudo_loss = pseudo_loss / len(unlabeled_output)
-                alpha = linear_rampup(epoch, epochs)
+                alpha = linear_rampup(epoch, epochs) * 0.1
                 # loss = dice_loss + consistency_loss + alpha*pseudo_loss
                 loss = dice_loss + alpha * pseudo_loss
 
@@ -707,44 +713,54 @@ class OnlineMGTrainer(BaseTrainer):
 
                 self.train_loss.append(loss_item)
 
-                preds = torch.mean(output, dim=0)
+                preds = torch.mean(output, dim=0).detach()
                 pred_mask = preds[:btsize].argmax(dim=1).unsqueeze(1)
                 bin_mask = one_hot(pred_mask, 4)
-                dice, miou = self.dice_metric(y_pred=bin_mask, y=mask_onehot).mean(), self.meaniou_metric(
-                    y_pred=bin_mask, y=mask_onehot).mean()
-
+                soft_y = mask_onehot.permute(0, 2, 3, 1).reshape((-1, 4))
+                predict = bin_mask.permute(0, 2, 3, 1).reshape((-1, 4))
+                dice_tesnsor = get_classwise_dice(predict, soft_y).cpu().numpy()
+                dice = dice_tesnsor[1:].mean()
+                dice_his.append(dice_tesnsor)
                 b = time.time() - tlc
                 self.batch_time.append(b)
 
                 tbar.set_description(
-                    f"CYCLE {cycle} TRAIN {epoch}| Loss: {loss_item:.3f} D:{dice_loss.item():.3f} P: {pseudo_loss.item():.3f}| Dice: {dice:.2f} Mean IoU: {miou:.2f} "
+                    f"CYCLE {cycle} TRAIN {epoch}| Loss: {loss_item:.3f} D:{dice_loss.item():.3f} P: {pseudo_loss.item():.3f}| Dice: {dice:.2f}{[round(d, 3) for d in dice_tesnsor[1:]]}"
                     f"|B {b:.2f}) ")
-
-                if btidx % 50 == 0:
-                    niter = epoch * len(trainloader)
+                self.logger.info(
+                    f"CYCLE {cycle} TRAIN {epoch}| Loss: {loss_item:.3f} D:{dice_loss.item():.3f} P: {pseudo_loss.item():.3f}| Dice: {dice:.2f}{[round(d, 3) for d in dice_tesnsor[1:]]}"
+                    f"|B {b:.2f}) ")
+                niter = epoch * len(trainloader) + btidx
+                if niter % 100 == 0 and niter != 0:
                     self.logger.info(
-                        f"CYCLE {cycle} TRAIN {epoch} iter {niter}| Loss:{loss_item:.3f}  Dice:{dice:.2f} Mean IoU: {miou:.2f}")
+                        f"CYCLE {cycle} TRAIN {epoch} iter {niter}| Loss:{loss_item:.3f}  Dice:{dice:.2f}{[round(d, 3) for d in dice_tesnsor[1:]]}")
                     self.writer_scalar(niter, cycle, self.train_loss.get_buffer().mean(),
-                                       self.meaniou_metric.aggregate().item(),
-                                       self.dice_metric.aggregate().item(), "Train")
-                    self.writer_image(pred_mask, cycle, niter, img, mask, "Train")
+                                       dice, "Train")
+                    avg_dice, avg_iou, avg_assd = self.valid(test_loader, cycle, batch_size=btsize)
+                    self.writer.add_scalar(f"cycle{cycle}/valid/dice", avg_dice, niter)
+                    self.writer.add_scalar(f"cycle{cycle}/valid/iou", avg_iou, niter)
+                    self.writer.add_scalar(f"cycle{cycle}/valid/assd", avg_assd, niter)
 
-        avg_loss, mean_iou, avg_dice = self.train_loss.get_buffer().mean(), self.meaniou_metric.aggregate().item(), self.dice_metric.aggregate().item()
+                    # self.writer_image(pred_mask, cycle, niter, img, mask, "Train")
+
+        avg_loss = self.train_loss.get_buffer().mean()
+        class_dice = np.asarray(dice_his).mean(axis=0)
+        mean_dice = class_dice[1:].mean()
         tbar.set_description(
-            f"CYCLE {cycle} TRAIN AVG| Loss:{avg_loss:.3f}  Dice:{avg_dice:.3f} Mean IoU: {mean_iou:.3f} |B {self.batch_time.get_buffer().mean():.2f}")
+            f"CYCLE {cycle} TRAIN AVG| Loss:{avg_loss:.3f}  Dice:{mean_dice:.3f}{class_dice}  |B {self.batch_time.get_buffer().mean():.2f}")
 
-        return avg_loss, mean_iou, avg_dice
+        return avg_loss, mean_dice, class_dice
 
     def train(self, dataloader, epochs, cycle):
-        labeled_loader, unlabeled_loader, pseudo_loader = dataloader.values()
-        return self.semi_train(labeled_loader, unlabeled_loader, epochs, cycle)
+        labeled_loader, unlabeled_loader, test_loader = dataloader["labeled"], dataloader["unlabeled"], dataloader[
+            "test"]
+        return self.semi_train(labeled_loader, unlabeled_loader, test_loader, epochs, cycle)
 
     @torch.no_grad()
-    def valid(self, dataloader, cycle, batch_size, input_size=416):
+    def valid(self, dataloader, cycle, batch_size, input_size=192):
         self.model.eval()
-        tbar = tqdm(dataloader)
         dice_his, iou_his, assd_his = [], [], []
-        for idx, (img, mask) in enumerate(tbar):
+        for idx, (img, mask) in enumerate(dataloader):
             img, mask = img[0], mask[0]
             h, w = img.shape[-2], img.shape[-1]
             batch_pred = []
@@ -763,20 +779,19 @@ class OnlineMGTrainer(BaseTrainer):
 
             pred_volume = np.concatenate(batch_pred)
             del batch_pred
-            dice, iou, assd = get_metric(pred_volume, np.asarray(mask.squeeze(1)))
-
-            tbar.set_description(
-                f"CYCLE {cycle} EVAl | Dice:{dice:.2f} Mean IoU: {iou:.2f} asd: {assd:.2f} ")
-
-            dice_his.append(dice)
-            iou_his.append(iou)
-            assd_his.append(assd)
+            dice, iou, assd = get_multi_class_metric(pred_volume, np.asarray(mask.squeeze(1)), 4)
+            mdice, miou, massd = sum(dice) / len(dice), sum(iou) / len(iou), sum(assd) / len(assd)
+            self.logger.info(
+                f"CYCLE {cycle} EVAl | Dice:{mdice:.2f}{dice} Mean IoU: {miou:.2f}{iou} assd: {massd:.2f}{assd} ")
+            dice_his.append(mdice)
+            iou_his.append(miou)
+            assd_his.append(massd)
 
         avg_dice, avg_iou, avg_assd = \
             np.round(np.mean(np.array(dice_his)), 3), \
                 np.round(np.mean(np.array(iou_his)), 3), \
                 np.round(np.mean(np.array(assd_his)), 3)
 
-        tbar.set_description(
+        self.logger.info(
             f"CYCLE {cycle} EVAl AVG| Dice:{avg_dice:.3f} Mean IoU: {avg_iou:.3f} asd: {avg_assd:.3f} ")
         return avg_dice, avg_iou, avg_assd

@@ -30,8 +30,7 @@ class ACDCDataset2d(Dataset):
         if self.transforms is not None:
             transformed = self.transforms(image=data, mask=label)
             data, label = transformed["image"], transformed["mask"]
-        return torch.tensor(data, dtype=torch.float32).unsqueeze(0), torch.tensor(label == 255,
-                                                                                  dtype=torch.long).unsqueeze(0)
+        return torch.tensor(data, dtype=torch.float32).unsqueeze(0), torch.tensor(label, dtype=torch.long).unsqueeze(0)
 
 
 class ACDCDataset3d(Dataset):
@@ -55,28 +54,28 @@ class ACDCDataset3d(Dataset):
         # slice标准化
         img_obj = (img_obj - img_obj.mean(axis=(1, 2), keepdims=True)) / img_obj.std(axis=(1, 2), keepdims=True)
         mask_obj = np.asarray(mask_obj, dtype=np.uint8)
-        return torch.tensor(img_obj, dtype=torch.float32).unsqueeze(1), torch.tensor(mask_obj > 0.5,
+        return torch.tensor(img_obj, dtype=torch.float32).unsqueeze(1), torch.tensor(mask_obj,
                                                                                      dtype=torch.long).unsqueeze(1)
 
 
 if __name__ == '__main__':
     import albumentations as A
 
-    transfoms = A.Compose([
-        A.PadIfNeeded(256, 256),
-        A.HorizontalFlip(),
-        A.VerticalFlip(),
-        A.RandomRotate90(p=0.2),
-        A.RandomCrop(192, 192),
-        A.GaussNoise(0.005, 0, per_channel=False),
-    ])
-    dataset = ACDCDataset2d("/home/yeep/project/py/ALSph2d/data/ACDCprecessed/train", transform=transfoms)
+    # transfoms = A.Compose([
+    #     A.PadIfNeeded(256, 256),
+    #     A.HorizontalFlip(),
+    #     A.VerticalFlip(),
+    #     A.RandomRotate90(p=0.2),
+    #     A.RandomCrop(192, 192),
+    #     A.GaussNoise(0.005, 0, per_channel=False),
+    # ])
+    dataset = ACDCDataset2d("/home/yeep/project/py/ALSph2d/data/ACDCprecessed/train", transform=None)
 
     print(dataset[0][0])
     print(dataset[0][1])
     print()
 
-    dataset = Dataset3d("/home/yeep/project/py/ALSph2d/data/ACDCprecessed/valid")
-    print(dataset[0][0])
-    print(dataset[0][1])
-    print()
+    # dataset = ACDCDataset3d("/home/yeep/project/py/ALSph2d/data/ACDCprecessed/valid")
+    # print(dataset[0][0])
+    # print(dataset[0][1])
+    # print()

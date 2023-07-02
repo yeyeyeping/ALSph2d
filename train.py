@@ -20,15 +20,15 @@ def parse_arg():
     parser.add_argument("--output-dir", type=str, default="")
     parser.add_argument("--device", type=str, default="cuda:0")
     parser.add_argument("--ndf", type=int, default=16)
-    parser.add_argument("--seed", type=int, default=9527)
+    parser.add_argument("--seed", type=int, default=3407)
     parser.add_argument("--initial-labeled", type=float, default=0.1)
     parser.add_argument("--budget", type=int, default=0.3)
     parser.add_argument("--query", type=int, default=0.01)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--epoch", type=int, default=50)
     parser.add_argument("--num-workers", type=int, default=4)
-    parser.add_argument("--lr", type=float, default=1e-4)
-    parser.add_argument("--weight-decay", type=float, default=1e-4)
+    parser.add_argument("--lr", type=float, default=2.5e-3)
+    parser.add_argument("--weight-decay", type=float, default=1e-5)
     parser.add_argument("--forget-weight", type=bool, default=False)
     parser.add_argument("--query-strategy", type=str, default="LeastConfidence")
     parser.add_argument("--query-strategy-param", type=str,
@@ -80,9 +80,9 @@ def al_cycle(args, logger):
     query_strategy = strategy_type(dataloader["unlabeled"], dataloader["labeled"], trainer=trainer,
                                    **args.query_strategy_param)
 
-    loss, iou, dice = trainer.train(dataloader, args.epoch, -1)
+    loss, dice, clsdice = trainer.train(dataloader, args.epoch, -1)
 
-    logger.info(f"initial model TRAIN | avg_loss: {loss} Dice:{dice} Mean IoU: {iou} ")
+    logger.info(f"initial model TRAIN | avg_loss: {loss} Dice:{dice}{clsdice}")
 
     # validation
     dice, meaniou, assd = trainer.valid(dataloader["test"], -1, args.batch_size)
@@ -113,10 +113,10 @@ def al_cycle(args, logger):
         logger.info(f'add {query} samplers to labeled dataset')
 
         # retrain model on updated dataloader
-        loss, iou, dice = trainer.train(dataloader, args.epoch, cycle)
-        if loss == iou == dice == None:
+        loss, dice, clsdice = trainer.train(dataloader, args.epoch, cycle)
+        if loss == dice == None:
             break
-        logger.info(f"CYCLE {cycle} TRAIN | avg_loss: {loss} avg_dice:{dice} avg_mean_iou: {iou} ")
+        logger.info(f"CYCLE {cycle} TRAIN | avg_loss: {loss} avg_dice:{dice}{clsdice} ")
 
         dice, meaniou, assd = trainer.valid(dataloader["test"], cycle, args.batch_size)
         logger.info(
