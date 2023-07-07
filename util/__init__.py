@@ -72,9 +72,9 @@ def get_samplers(data_num, initial_labeled, with_pseudo=False):
 def build_strategy(strategy: str):
     import util.query_strategy as qs
     from util.trainer import BaseTrainer, TTATrainer, BALDTrainer, LearningLossTrainer, CoresetTrainer, \
-        ContrastiveTrainer, DEALTrainer, URPCTrainer, OnlineMGTrainer
+        ContrastiveTrainer, DEALTrainer, URPCTrainer, OnlineMGTrainer, URPCMGTrainer
     from util.query_strategy import TAAL, BALD, LossPredictionQuery, CoresetQuery, ContrastiveQuery, DEALQuery, \
-        OnlineMGQuery
+        OnlineMGQuery, URPCMGQuery
 
     if strategy in qs.__dict__:
         strategy = qs.__dict__[strategy]
@@ -96,6 +96,8 @@ def build_strategy(strategy: str):
         trainer = DEALTrainer
     elif strategy == OnlineMGQuery:
         trainer = OnlineMGTrainer
+    elif strategy == URPCMGQuery:
+        trainer = URPCMGTrainer
 
     return strategy, trainer
 

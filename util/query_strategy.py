@@ -454,3 +454,6 @@ class OnlineMGQuery(SimpleQueryStrategy):
     def compute_score(self, model_output):
         output = torch.stack(model_output)
         return f.JSD(output)
+
+
+URPCMGQuery = OnlineMGQuery
