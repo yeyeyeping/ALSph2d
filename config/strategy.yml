@@ -1,0 +1,105 @@
+__Base: &base
+  module: "util.query_strategy"
+  additional_param: { }
+  trainer:
+    module: "util.trainer"
+    class: "BaseTrainer"
+    additional_param: { }
+
+RandomQuery:
+  <<: *base
+
+MaxEntropy:
+  <<: *base
+
+MarginConfidence:
+  <<: *base
+
+LeastConfidence:
+  <<: *base
+
+MGQuery:
+  <<: *base
+
+UncertaintyBatchQuery:
+  <<: *base
+
+OnlineMGQuery:
+  <<: *base
+  trainer:
+    module: "util.trainer"
+    class: "OnlineMGTrainer"
+    additional_param: { }
+
+URPCMGQuery:
+  <<: *base
+  trainer:
+    module: "util.trainer"
+    class: "URPCMGTrainer"
+    additional_param: { }
+
+BALD:
+  <<: *base
+  additional_param:
+    drop_round: 10
+  trainer:
+    module: "util.trainer"
+    class: "BALDTrainer"
+    additional_param: { }
+
+LossPredictionQuery:
+  <<: *base
+  trainer:
+    module: "util.trainer"
+    class: "LearningLossTrainer"
+    additional_param: { }
+
+CoresetQuery:
+  <<: *base
+  additional_param:
+    pool_size: 12
+  trainer:
+    module: "util.trainer"
+    class: "CoresetTrainer"
+    additional_param: { }
+
+ContrastiveQuery:
+  <<: *base
+  additional_param:
+    constrative_sampler_num: 20
+    pool_size: 12
+    distance_measure: "cosine" #'cityblock', 'cosine', 'euclidean', 'l1', 'l2', 'manhattan','braycurtis', 'canberra', 'chebyshev','correlation', 'dice', 'hamming', 'jaccard', 'kulsinski', 'mahalanobis','minkowski', 'rogerstanimoto', 'russellrao', 'seuclidean','sokalmichener', 'sokalsneath', 'sqeuclidean', 'yule'
+  trainer:
+    module: "util.trainer"
+    class: "ContrastiveTrainer"
+    additional_param: { }
+
+DEALQuery:
+  <<: *base
+  additional_param:
+    difficulty_strategy: "max_entropy"
+  trainer:
+    module: "util.trainer"
+    class: "DEALTrainer"
+    additional_param: { }
+
+TAAL:
+  <<: *base
+  additional_param:
+    num_augmentations: 10
+  trainer:
+    module: "util.trainer"
+    class: "TTATrainer"
+    additional_param:
+      num_augmentations: 3
+
+
+
+
+
+
+
+
+
+
+

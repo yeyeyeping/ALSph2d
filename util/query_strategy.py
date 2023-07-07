@@ -38,7 +38,6 @@ class LimitSortedList(object):
         if len(self._data) > self.limit:
             self._data = sorted(self._data, key=lambda x: x[1], reverse=self.descending)[:self.limit]
 
-
 class QueryStrategy(object):
 
     def __init__(self, unlabeled_dataloader: DataLoader, labeled_dataloader: DataLoader, **kwargs) -> None:
@@ -61,7 +60,6 @@ class QueryStrategy(object):
         #     self.unlabeled_dataloader.sampler.indices.pop(i)
         for item in img_idx:
             self.unlabeled_dataloader.sampler.indices.remove(item)
-
 
 class SimpleQueryStrategy(QueryStrategy):
     def __init__(self, unlabeled_dataloader: DataLoader, labeled_dataloader: DataLoader, **kwargs) -> None:
@@ -90,13 +88,11 @@ class SimpleQueryStrategy(QueryStrategy):
             q.extend(idx_entropy)
         return q.data
 
-
 class RandomQuery(QueryStrategy):
     def sample(self, query_num):
         np.random.shuffle(self.unlabeled_dataloader.sampler.indices)
         self.labeled_dataloader.sampler.indices.extend(self.unlabeled_dataloader.sampler.indices[:query_num])
         del self.unlabeled_dataloader.sampler.indices[:query_num]
-
 
 class MaxEntropy(SimpleQueryStrategy):
 
@@ -107,7 +103,6 @@ class MaxEntropy(SimpleQueryStrategy):
         model_output, _ = model_output
         return f.max_entropy(model_output.softmax(dim=1))
 
-
 class MarginConfidence(SimpleQueryStrategy):
 
     def __init__(self, unlabeled_dataloader: DataLoader, labeled_dataloader: DataLoader, **kwargs) -> None:
@@ -117,7 +112,6 @@ class MarginConfidence(SimpleQueryStrategy):
         model_output, _ = model_output
         return f.margin_confidence(model_output.softmax(dim=1))
 
-
 class LeastConfidence(SimpleQueryStrategy):
     def __init__(self, unlabeled_dataloader: DataLoader, labeled_dataloader: DataLoader, **kwargs) -> None:
         super().__init__(unlabeled_dataloader, labeled_dataloader, descending=False, **kwargs)
@@ -125,7 +119,6 @@ class LeastConfidence(SimpleQueryStrategy):
     def compute_score(self, model_output):
         model_output, _ = model_output
         return f.least_confidence(model_output.softmax(dim=1))
-
 
 class TAAL(QueryStrategy):
     def __init__(self, unlabeled_dataloader: DataLoader, labeled_dataloader: DataLoader, **kwargs) -> None:
@@ -151,13 +144,12 @@ class TAAL(QueryStrategy):
 
         return q.data
 
-
 class BALD(QueryStrategy):
     def __init__(self, unlabeled_dataloader: DataLoader, labeled_dataloader: DataLoader, **kwargs) -> None:
         super().__init__(unlabeled_dataloader, labeled_dataloader)
         assert "trainer" in kwargs
         self.model = kwargs["trainer"].model
-        self.dropout_round = int(kwargs.get("round", 10))
+        self.dropout_round = int(kwargs.get("dropout_round", 10))
         assert hasattr(self.model, "dropout_switch")
 
     @torch.no_grad()
@@ -181,7 +173,6 @@ class BALD(QueryStrategy):
 
         return q.data
 
-
 class LossPredictionQuery(SimpleQueryStrategy):
 
     def __init__(self, unlabeled_dataloader: DataLoader, labeled_dataloader: DataLoader, **kwargs) -> None:
@@ -193,7 +184,6 @@ class LossPredictionQuery(SimpleQueryStrategy):
         _, features = model_output
         pred_loss = self.trainer.loss_predition_module(features)
         return pred_loss
-
 
 class CoresetQuery(QueryStrategy):
 
@@ -263,7 +253,6 @@ class CoresetQuery(QueryStrategy):
 
         return idxs
 
-
 class UncertaintyBatchQuery(QueryStrategy):
     def __init__(self, unlabeled_dataloader: DataLoader, labeled_dataloader: DataLoader, **kwargs) -> None:
         super().__init__(unlabeled_dataloader, labeled_dataloader)
@@ -296,13 +285,12 @@ class UncertaintyBatchQuery(QueryStrategy):
         selected_batch = np.asarray(splits[max_idx])
         return selected_batch[:, 0].astype(np.uint64)
 
-
 class ContrastiveQuery(QueryStrategy):
     def __init__(self, unlabeled_dataloader: DataLoader, labeled_dataloader: DataLoader, **kwargs) -> None:
         super().__init__(unlabeled_dataloader, labeled_dataloader)
         assert "trainer" in kwargs
         self.model = kwargs["trainer"].model
-        self.k = int(kwargs.get("constrative_sampler_size", 20))
+        self.k = int(kwargs.get("constrative_sampler_num", 20))
         self.distance_measure = kwargs.get("distance_measure", "cosine")
         assert self.k < len(
             unlabeled_dataloader.sampler.indices), f"{self.k} > {len(labeled_dataloader.sampler.indices)}"
@@ -358,7 +346,6 @@ class ContrastiveQuery(QueryStrategy):
 
         return map(lambda x: x[0], sorted(q, key=lambda x: x[1])[:query_num])
 
-
 class DEALQuery(SimpleQueryStrategy):
     def __init__(self, unlabeled_dataloader: DataLoader, labeled_dataloader: DataLoader, **kwargs) -> None:
         funcstr = kwargs.get("difficulty_strategy", "max_entropy")
@@ -375,7 +362,6 @@ class DEALQuery(SimpleQueryStrategy):
         self.trainer.pam.eval()
         difficulty_map, _ = self.trainer.pam(model_output)
         return self.score_func(model_output.softmax(1), difficulty_map)
-
 
 class MGQuery(QueryStrategy):
 
@@ -444,7 +430,6 @@ class MGQuery(QueryStrategy):
         for item in pseudo_idx:
             self.unlabeled_dataloader.sampler.indices.remove(item)
 
-
 class OnlineMGQuery(SimpleQueryStrategy):
 
     def __init__(self, unlabeled_dataloader: DataLoader, labeled_dataloader: DataLoader, **kwargs) -> None:
@@ -454,6 +439,5 @@ class OnlineMGQuery(SimpleQueryStrategy):
     def compute_score(self, model_output):
         output = torch.stack(model_output)
         return f.JSD(output)
-
 
 URPCMGQuery = OnlineMGQuery

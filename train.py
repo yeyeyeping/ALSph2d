@@ -1,69 +1,11 @@
-import random
-from argparse import ArgumentParser
 from os.path import join
 
-import logging
 import numpy as np
-import os
 import time
-import torch
 from tensorboardX import SummaryWriter
 from util import build_strategy
 from util import get_dataloader, save_query_plot
-
-
-def parse_arg():
-    parser = ArgumentParser()
-    parser.add_argument("--data-dir", type=str,
-                        default="data/ACDCprecessed")
-    parser.add_argument("--output-dir", type=str, default="")
-    parser.add_argument("--device", type=str, default="cuda:0")
-    parser.add_argument("--ndf", type=int, default=16)
-    parser.add_argument("--seed", type=int, default=3407)
-    parser.add_argument("--initial-labeled", type=float, default=0.1)
-    parser.add_argument("--budget", type=int, default=0.2)
-    parser.add_argument("--query", type=int, default=0.01)
-    parser.add_argument("--batch-size", type=int, default=32)
-    parser.add_argument("--epoch", type=int, default=50)
-    parser.add_argument("--num-workers", type=int, default=4)
-    parser.add_argument("--lr", type=float, default=2.5e-3)
-    parser.add_argument("--weight-decay", type=float, default=1e-5)
-    parser.add_argument("--forget-weight", type=bool, default=False)
-    parser.add_argument("--query-strategy", type=str, default="LeastConfidence")
-    parser.add_argument("--query-strategy-param", type=str,
-                        default='{"round": 10, "distance_measure": "cosine", "pool_size": 8,\
-                                 "constrative_sampler_size": 20, "difficulty_strategy": "max_entropy"}')
-    parser.add_argument("--trainer-param", type=str, default='{"num_augmentations": 3}')
-    args = parser.parse_args()
-    if args.output_dir == "":
-        args.output_dir = args.query_strategy
-    args.query_strategy_param = eval(args.query_strategy_param)
-    args.trainer_param = eval(args.trainer_param)
-    if not os.path.exists(args.output_dir):
-        os.mkdir(args.output_dir)
-    args.checkpoint = os.path.join(args.output_dir, "checkpoint")
-    if not os.path.exists(args.checkpoint):
-        os.mkdir(args.checkpoint)
-    return args
-
-
-def random_seed(seed):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    torch.backends.cudnn.enabled = True
-    torch.backends.cudnn.benchmark = True
-
-
-def init_logger(args):
-    logger = logging.getLogger(__name__)
-    logger.propagate = False
-    fh = logging.FileHandler(f"{args.output_dir}/{time.time()}.log")
-    fh.setFormatter(logging.Formatter('%(asctime)s %(message)s'))
-    logger.addHandler(fh)
-    logger.info(str(args))
-    return logger
-
+from util import parse_arg, random_seed, init_logger
 
 def al_cycle(args, logger):
     writer = SummaryWriter(join(args.output_dir, "tensorboard"))
@@ -149,5 +91,7 @@ if __name__ == "__main__":
     args = parse_arg()
     random_seed(args.seed)
     logger = init_logger(args)
-    logger.warning(args)
+
+    logger.info(args)
+
     al_cycle(args=args, logger=logger)

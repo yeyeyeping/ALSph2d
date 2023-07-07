@@ -1,12 +1,15 @@
-from typing import NewType
+import yaml
+import os
 from dataset.SphDataset import SubsetSampler
 import torch
 import scipy.ndimage as ndimage
 import numpy as np
 import albumentations as A
 from os.path import join
-
-
+import random
+from argparse import ArgumentParser
+import time
+import logging
 class AverageMeter(object):
     """Computes and stores the average and current value"""
 
@@ -168,10 +171,6 @@ def get_dataloader(args, with_pseudo=False):
     if with_pseudo:
         from dataset.SphDataset import PseudoDataset2d
         unlabeled_sampler, pseudo_sampler = unlabeled_sampler
-        # dpseudo = torch.utils.data.DataLoader(PseudoDataset2d(datafolder=join(args.data_dir, "train"),
-        #                                                       transform=train_transform),
-        #                                       batch_size=args.batch_size,
-        #                                       sampler=pseudo_sampler)
         dpseudo = torch.utils.data.DataLoader(PseudoDataset2d(datafolder=join(args.data_dir, "train"),
                                                               transform=train_transform),
                                               batch_size=args.batch_size,
@@ -237,6 +236,53 @@ def linear_rampup(current, rampup_length):
 def get_current_consistency_weight(epoch):
     # Consistency ramp-up from https://arxiv.org/abs/1610.02242
     return 0.1 * sigmoid_rampup(epoch, 80)
+
+
+def read_yml(filepath):
+    assert not os.path.exists(filepath), "file not exist"
+    with open(filepath) as fp:
+        config = yaml.load(fp, yaml.FullLoader)
+    return config
+
+
+def random_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.backends.cudnn.enabled = True
+    torch.backends.cudnn.benchmark = True
+
+
+def init_logger(args):
+    logger = logging.getLogger(__name__)
+    logger.propagate = False
+    fh = logging.FileHandler(f"{args.output_dir}/{time.time()}.log")
+    fh.setFormatter(logging.Formatter('%(asctime)s %(message)s'))
+    logger.addHandler(fh)
+    logger.info(str(args))
+    return logger
+
+
+def parse_arg():
+    parser = ArgumentParser()
+    parser.add_argument("--config", type=str,
+                        default="config/config.yml")
+    parser.add_argument("--strategy", type=str,
+                        default="config/strategy.yml")
+    args = parser.parse_args()
+
+    config, all_strategy = read_yml(args.config), read_yml(args.strategy)
+
+    config["Training"]["output_dir"] = config["AL"]["query_strategy"] if config["Training"]["output_dir"] is None \
+        else config["Training"]["output_dir"]
+
+    os.makedirs(config["Training"]["output_dir"], exist_ok=True)
+
+    checkpoint_dir = os.path.join(config["Training"]["output_dir"], "checkpoint")
+
+    os.makedirs(checkpoint_dir)
+
+    return config
 
 
 if __name__ == '__main__':
