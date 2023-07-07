@@ -17,6 +17,7 @@ from model import build_model, initialize_weights, UNetWithDropout
 from util.metric import get_metric, get_multi_class_metric, get_classwise_dice
 from model import UNetWithFeature
 from util import get_current_consistency_weight, linear_rampup
+from pymic.util.ramps import get_rampup_ratio
 
 
 # need a function to unit the way of model‘s output
@@ -772,6 +773,172 @@ class OnlineMGTrainer(BaseTrainer):
                                     mode='nearest')
                 batch_slices = torch.from_numpy(batch_slices).to(self.args.device)
                 output = torch.stack(self.model(batch_slices)).mean(0)
+                batch_pred_mask = output.argmax(dim=1).cpu()
+                batch_pred_mask = zoom(batch_pred_mask, (1, h / input_size, w / input_size), order=0,
+                                       mode='nearest')
+                batch_pred.append(batch_pred_mask)
+
+            pred_volume = np.concatenate(batch_pred)
+            del batch_pred
+            dice, iou, assd = get_multi_class_metric(pred_volume, np.asarray(mask.squeeze(1)), 4)
+            mdice, miou, massd = sum(dice) / len(dice), sum(iou) / len(iou), sum(assd) / len(assd)
+            self.logger.info(
+                f"CYCLE {cycle} EVAl | Dice:{mdice:.2f}{dice} Mean IoU: {miou:.2f}{iou} assd: {massd:.2f}{assd} ")
+            dice_his.append(mdice)
+            iou_his.append(miou)
+            assd_his.append(massd)
+
+        avg_dice, avg_iou, avg_assd = \
+            np.round(np.mean(np.array(dice_his)), 3), \
+                np.round(np.mean(np.array(iou_his)), 3), \
+                np.round(np.mean(np.array(assd_his)), 3)
+
+        self.logger.info(
+            f"CYCLE {cycle} EVAl AVG| Dice:{avg_dice:.3f} Mean IoU: {avg_iou:.3f} asd: {avg_assd:.3f} ")
+        return avg_dice, avg_iou, avg_assd
+
+
+class URPCMGTrainer(BaseTrainer):
+
+    def __init__(self, args, logger, writer, param: dict = None) -> None:
+        self.param = {
+            "class_num": 4,
+            "in_chns": 1,
+            "block_type": "UNetBlock",
+            "feature_chns": [64, 128, 256, 512],
+            "feature_grps": [4, 4, 4, 4, 1],
+            "norm_type": "group_norm",
+            "acti_func": "relu",
+            "dropout": True,
+            "depth_sep_deconv": False,
+            "deep_supervision": False,
+        }
+        super().__init__(args, logger, writer, param)
+
+    def build_model(self):
+        from model.MGNet.MGNet import MGNet
+        model = MGNet(self.param).to(self.args.device)
+        model.apply(lambda param: initialize_weights(param, 1))
+        return model
+
+    def semi_train(self, labeled_loader, unlabeled_loader, test_loader, epochs, cycle):
+        from dataset.dataset import TwoStreamBatchSampler
+        from torch.utils.data import DataLoader
+        labeled_idx, unlabeled_idx = labeled_loader.sampler.indices, unlabeled_loader.sampler.indices
+        btsize = labeled_loader.batch_size // 2
+        if len(unlabeled_idx) < btsize:
+            return None, None, None
+        batch_sampler = TwoStreamBatchSampler(labeled_idx, unlabeled_idx, labeled_loader.batch_size, btsize)
+        trainloader = DataLoader(labeled_loader.dataset, batch_sampler=batch_sampler,
+                                 num_workers=4, pin_memory=True, persistent_workers=True, prefetch_factor=4, )
+        self.train_loss.reset(), self.batch_time.reset()
+        dice_his = []
+        for epoch in range(epochs):
+            tbar = tqdm(trainloader)
+            self.model.train()
+            for btidx, (img, mask) in enumerate(tbar):
+                tlc = time.time()
+                img, mask = img.to(self.args.device), mask.to(self.args.device)
+                mask_onehot = one_hot(mask[:btsize], 4)
+                outputlist = self.model(img)
+                # Group x Batch x C x H x W
+                output = torch.stack(outputlist).softmax(dim=2)
+
+                labeled_output, unlabeled_output = output[:, :btsize], output[:, btsize:],
+
+                # dicece loss for labeled data
+                labeled_mask = mask_onehot[None].repeat_interleave(len(labeled_output), 0)
+                G, N, C, H, W = labeled_output.shape
+                outshape = [G * N, C, H, W]
+                labeled_output = torch.reshape(labeled_output, shape=outshape)
+                labeled_mask = torch.reshape(labeled_mask, shape=outshape)
+                dice_loss = self.criterion(labeled_output, labeled_mask)
+
+                # uncertanty rectify
+                avg_pred = torch.mean(unlabeled_output, dim=0) * 0.99 + 0.005
+                loss_reg = 0
+                for aux in unlabeled_output:
+                    aux = aux * 0.99 + 0.005
+                    var = torch.sum(nn.functional.kl_div(aux.log(), avg_pred), dim=1, keepdim=True)
+                    exp_var = torch.exp(-var)
+                    square_e = torch.square(avg_pred - aux)
+                    loss_i = torch.mean(square_e * exp_var) / \
+                             (torch.mean(exp_var) + 1e-8) + torch.mean(var)
+                    loss_reg += loss_i
+
+                loss_reg = loss_reg / len(unlabeled_output)
+                alpha = get_rampup_ratio(epoch, 0, epochs, mode="sigmoid") * 0.1
+                # loss = dice_loss + consistency_loss + alpha*pseudo_loss
+                loss = dice_loss + alpha * loss_reg
+
+                self.optimizer.zero_grad()
+                loss.backward()
+                self.optimizer.step()
+                self.scheduler.step()
+
+                loss_item = loss.cpu().item()
+
+                self.train_loss.append(loss_item)
+
+                preds = torch.mean(output, dim=0).detach()
+                pred_mask = preds[:btsize].argmax(dim=1).unsqueeze(1)
+                bin_mask = one_hot(pred_mask, 4)
+                soft_y = mask_onehot.permute(0, 2, 3, 1).reshape((-1, 4))
+                predict = bin_mask.permute(0, 2, 3, 1).reshape((-1, 4))
+                dice_tesnsor = get_classwise_dice(predict, soft_y).cpu().numpy()
+                dice = dice_tesnsor[1:].mean()
+                dice_his.append(dice_tesnsor)
+                b = time.time() - tlc
+                self.batch_time.append(b)
+
+                tbar.set_description(
+                    f"CYCLE {cycle} TRAIN {epoch}| Loss: {loss_item:.3f} D:{dice_loss.item():.3f} P: {loss_reg.item():.3f}| Dice: {dice:.2f}{[round(d, 3) for d in dice_tesnsor[1:]]}"
+                    f"|B {b:.2f}) ")
+                self.logger.info(
+                    f"CYCLE {cycle} TRAIN {epoch}| Loss: {loss_item:.3f} D:{dice_loss.item():.3f} P: {loss_reg.item():.3f}| Dice: {dice:.2f}{[round(d, 3) for d in dice_tesnsor[1:]]}"
+                    f"|B {b:.2f}) ")
+                niter = epoch * len(trainloader) + btidx
+                if niter % 100 == 0 and niter != 0:
+                    self.logger.info(
+                        f"CYCLE {cycle} TRAIN {epoch} iter {niter}| Loss:{loss_item:.3f}  Dice:{dice:.2f}{[round(d, 3) for d in dice_tesnsor[1:]]}")
+                    self.writer_scalar(niter, cycle, self.train_loss.get_buffer().mean(),
+                                       dice, "Train")
+                    avg_dice, avg_iou, avg_assd = self.valid(test_loader, cycle, batch_size=btsize)
+                    self.writer.add_scalar(f"cycle{cycle}/valid/dice", avg_dice, niter)
+                    self.writer.add_scalar(f"cycle{cycle}/valid/iou", avg_iou, niter)
+                    self.writer.add_scalar(f"cycle{cycle}/valid/assd", avg_assd, niter)
+
+                    # self.writer_image(pred_mask, cycle, niter, img, mask, "Train")
+
+        avg_loss = self.train_loss.get_buffer().mean()
+        class_dice = np.asarray(dice_his).mean(axis=0)
+        mean_dice = class_dice[1:].mean()
+        tbar.set_description(
+            f"CYCLE {cycle} TRAIN AVG| Loss:{avg_loss:.3f}  Dice:{mean_dice:.3f}{class_dice}  |B {self.batch_time.get_buffer().mean():.2f}")
+
+        return avg_loss, mean_dice, class_dice
+
+    def train(self, dataloader, epochs, cycle):
+        labeled_loader, unlabeled_loader, test_loader = dataloader["labeled"], dataloader["unlabeled"], dataloader[
+            "test"]
+        return self.semi_train(labeled_loader, unlabeled_loader, test_loader, epochs, cycle)
+
+    @torch.no_grad()
+    def valid(self, dataloader, cycle, batch_size, input_size=192):
+        self.model.eval()
+        dice_his, iou_his, assd_his = [], [], []
+        for idx, (img, mask) in enumerate(dataloader):
+            img, mask = img[0], mask[0]
+            h, w = img.shape[-2], img.shape[-1]
+            batch_pred = []
+            for batch in range(0, img.shape[0], batch_size):
+                last = batch + batch_size
+                batch_slices = img[batch:] if last >= img.shape[0] else img[batch:last]
+
+                batch_slices = zoom(batch_slices, (1, 1, input_size / h, input_size / w), order=0,
+                                    mode='nearest')
+                batch_slices = torch.from_numpy(batch_slices).to(self.args.device)
+                output = torch.sloss_regtack(self.model(batch_slices)).mean(0)
                 batch_pred_mask = output.argmax(dim=1).cpu()
                 batch_pred_mask = zoom(batch_pred_mask, (1, h / input_size, w / input_size), order=0,
                                        mode='nearest')

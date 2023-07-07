@@ -3,7 +3,6 @@ from argparse import ArgumentParser
 from os.path import join
 
 import logging
-import matplotlib.pyplot as plt
 import numpy as np
 import os
 import time
@@ -22,7 +21,7 @@ def parse_arg():
     parser.add_argument("--ndf", type=int, default=16)
     parser.add_argument("--seed", type=int, default=3407)
     parser.add_argument("--initial-labeled", type=float, default=0.1)
-    parser.add_argument("--budget", type=int, default=0.3)
+    parser.add_argument("--budget", type=int, default=0.2)
     parser.add_argument("--query", type=int, default=0.01)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--epoch", type=int, default=50)
@@ -150,5 +149,5 @@ if __name__ == "__main__":
     args = parse_arg()
     random_seed(args.seed)
     logger = init_logger(args)
-
+    logger.warning(args)
     al_cycle(args=args, logger=logger)
