@@ -15,13 +15,14 @@ def get_trainer(config, dataloader, logger):
     query_strategy = config["AL"]["query_strategy"]
     strategy_section = config["all_strategy"][query_strategy]
 
-    strategy_class = getclass(strategy_section["module"], query_strategy)
-    strategy_obj = strategy_class(dataloader, *strategy_section["additional_param"])
-    logger.info(f"strategy:{type(strategy_obj)}  param:{strategy_section['additional_param']}")
-
     trainer_class = getclass(strategy_section["trainer"]["module"],
                              strategy_section["trainer"]["class"])
     trainer_obj = trainer_class(config, logger=logger, *strategy_section["trainer"]["additional_param"])
+
+    strategy_class = getclass(strategy_section["module"], query_strategy)
+    strategy_obj = strategy_class(dataloader, trainer=trainer_obj, *strategy_section["additional_param"])
+    logger.info(f"strategy:{type(strategy_obj)}  param:{strategy_section['additional_param']}")
+
     logger.info(f"trainer:{type(trainer_obj)} param: {strategy_section['trainer']['additional_param']}")
 
     return strategy_obj, trainer_obj
@@ -79,12 +80,10 @@ def main(config):
         if len(dataloader["unlabeled"].sampler.indices) == 0:
             break
 
-        trainer.summ_writer.flush()
-        trainer.summ_writer.close()
+        trainer.finish()
 
 
 if __name__ == "__main__":
-
     config = parse_config()
 
     random_seed(config)

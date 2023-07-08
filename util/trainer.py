@@ -859,7 +859,7 @@ class URPCMGTrainer(BaseTrainer):
                 loss_reg = 0
                 for aux in unlabeled_output:
                     aux = aux * 0.99 + 0.005
-                    var = torch.sum(nn.functional.kl_div(aux.log(), avg_pred), dim=1, keepdim=True)
+                    var = torch.sum(nn.functional.kl_div(aux.log(), avg_pred,reduction="none"), dim=1, keepdim=True)
                     exp_var = torch.exp(-var)
                     square_e = torch.square(avg_pred - aux)
                     loss_i = torch.mean(square_e * exp_var) / \

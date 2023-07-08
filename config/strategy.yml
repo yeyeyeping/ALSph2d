@@ -27,14 +27,14 @@ UncertaintyBatchQuery:
 OnlineMGQuery:
   <<: *base
   trainer:
-    module: "util.trainer"
-    class: "OnlineMGTrainer"
+    module: "util.newstyletrainer"
+    class: "ConsistencyMGNetTrainer"
     additional_param: { }
 
 URPCMGQuery:
   <<: *base
   trainer:
-    module: "util.trainer"
+    module: "util.newstyletrainer"
     class: "URPCMGTrainer"
     additional_param: { }
 
@@ -43,14 +43,14 @@ BALD:
   additional_param:
     drop_round: 10
   trainer:
-    module: "util.trainer"
+    module: "util.newstyletrainer"
     class: "BALDTrainer"
     additional_param: { }
 
 LossPredictionQuery:
   <<: *base
   trainer:
-    module: "util.trainer"
+    module: "util.newstyletrainer"
     class: "LearningLossTrainer"
     additional_param: { }
 
@@ -59,7 +59,7 @@ CoresetQuery:
   additional_param:
     pool_size: 12
   trainer:
-    module: "util.trainer"
+    module: "util.newstyletrainer"
     class: "CoresetTrainer"
     additional_param: { }
 
@@ -70,7 +70,7 @@ ContrastiveQuery:
     pool_size: 12
     distance_measure: "cosine" #'cityblock', 'cosine', 'euclidean', 'l1', 'l2', 'manhattan','braycurtis', 'canberra', 'chebyshev','correlation', 'dice', 'hamming', 'jaccard', 'kulsinski', 'mahalanobis','minkowski', 'rogerstanimoto', 'russellrao', 'seuclidean','sokalmichener', 'sokalsneath', 'sqeuclidean', 'yule'
   trainer:
-    module: "util.trainer"
+    module: "util.newstyletrainer"
     class: "ContrastiveTrainer"
     additional_param: { }
 
@@ -79,7 +79,7 @@ DEALQuery:
   additional_param:
     difficulty_strategy: "max_entropy"
   trainer:
-    module: "util.trainer"
+    module: "util.newstyletrainer"
     class: "DEALTrainer"
     additional_param: { }
 
@@ -88,7 +88,7 @@ TAAL:
   additional_param:
     num_augmentations: 10
   trainer:
-    module: "util.trainer"
+    module: "util.newstyletrainer"
     class: "TTATrainer"
     additional_param:
       num_augmentations: 3
