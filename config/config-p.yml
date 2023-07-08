@@ -6,19 +6,19 @@ AL:
 
 Dataset:
   data_dir: "data/ACDCprecessed"
-  batch_size: 16 #for dev
-  num_workers: 1
+  batch_size: 32 #for dev
+  num_workers: 4
   input_size: 192
 
 Training:
   output_dir:
   device: "cuda:0"
-  iter_max: 300
+  iter_max: 30000
   iter_valid: 100
-  early_stop_patience: 500
+  early_stop_patience: 10000
   lr: 2.5e-3
   lr_gamma: 0.5
-  ReduceLROnPlateau_patience: 1000
+  ReduceLROnPlateau_patience: 4000
   weight_decay: 0.00001
   seed: 3407
 Network:

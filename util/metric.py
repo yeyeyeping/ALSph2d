@@ -7,9 +7,10 @@ def get_metric(pred, gt):
     return binary_dice(pred, gt), binary_iou(pred, gt), binary_assd(pred, gt)
 
 
-def get_multi_class_metric(pred, gt, classnum):
+def get_multi_class_metric(pred, gt, classnum, include_backgroud=False):
     dice_list, assd_list, iou_list = [], [], []
-    for label in range(1, classnum):
+    i = 1 if not include_backgroud else 0
+    for label in range(i, classnum):
         p, g = pred == label, gt == label
         dice_list.append(round(binary_dice(p, g), 3))
         assd_list.append(round(binary_assd(p, g), 3))

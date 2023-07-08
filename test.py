@@ -1,14 +1,8 @@
-import importlib
+import torch
+from torch import nn
 
-import yaml
-import os
+ce = nn.CrossEntropyLoss()
 
-
-def parse_config(filepath):
-    assert os.path.exists(filepath), "file not exist"
-    with open(filepath) as fp:
-        config = yaml.load(fp, yaml.FullLoader)
-    return config
-
-
-print(parse_config("/home/yeep/project/py/ALSph2d/config/strategy.yml")["URPCMGQuery"])
+a = torch.randn(16, 4, 96, 96)
+l = torch.empty(16, 96, 96, dtype=torch.long).random_(0, 3)
+ce(a, l)

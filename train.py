@@ -1,46 +1,58 @@
-from os.path import join
-
 import numpy as np
-import time
-from tensorboardX import SummaryWriter
-from util import build_strategy
+
 from util import get_dataloader, save_query_plot
-from util import parse_arg, random_seed, init_logger
+from util import parse_config, random_seed, init_logger
+import importlib
 
-def al_cycle(args, logger):
-    writer = SummaryWriter(join(args.output_dir, "tensorboard"))
-    dataloader = get_dataloader(args)
 
+def getclass(module, classname):
+    module = importlib.import_module(module)
+    assert hasattr(module, classname), "Not Implement"
+    return module.__dict__[classname]
+
+
+def get_trainer(config, dataloader, logger):
+    query_strategy = config["AL"]["query_strategy"]
+    strategy_section = config["all_strategy"][query_strategy]
+
+    strategy_class = getclass(strategy_section["module"], query_strategy)
+    strategy_obj = strategy_class(dataloader, *strategy_section["additional_param"])
+    logger.info(f"strategy:{type(strategy_obj)}  param:{strategy_section['additional_param']}")
+
+    trainer_class = getclass(strategy_section["trainer"]["module"],
+                             strategy_section["trainer"]["class"])
+    trainer_obj = trainer_class(config, logger=logger, *strategy_section["trainer"]["additional_param"])
+    logger.info(f"trainer:{type(trainer_obj)} param: {strategy_section['trainer']['additional_param']}")
+
+    return strategy_obj, trainer_obj
+
+
+def main(config):
+    logger = init_logger(config)
+    dataloader = get_dataloader(config)
+    num_dataset = len(dataloader["labeled"].dataset)
+    labeled_percent, dice_list = [], []
     logger.info(
         f'Initial configuration: len(du): {len(dataloader["unlabeled"].sampler.indices)} '
         f'len(dl): {len(dataloader["labeled"].sampler.indices)} ')
 
-    strategy_type, trainer_type = build_strategy(args.query_strategy)
-    trainer = trainer_type(args, logger, writer, args.trainer_param)
+    query_strategy, trainer = get_trainer(config, dataloader, logger)
 
-    query_strategy = strategy_type(dataloader["unlabeled"], dataloader["labeled"], trainer=trainer,
-                                   **args.query_strategy_param)
+    # initialize model
+    val_metric = trainer.train(dataloader, 0)
 
-    loss, dice, clsdice = trainer.train(dataloader, args.epoch, -1)
+    initial_ratio = np.round(len(dataloader["labeled"].sampler.indices) / num_dataset, 2)
+    labeled_percent.append(initial_ratio)
+    dice_list.append(val_metric['avg_fg_dice'])
 
-    logger.info(f"initial model TRAIN | avg_loss: {loss} Dice:{dice}{clsdice}")
+    valid_dice = "[" + ' '.join("{0:.4f}".format(x) for x in val_metric['class_dice']) + "]"
+    logger.info(
+        f"initial model TRAIN | avg_loss: {val_metric['loss']} Dice:{val_metric['avg_fg_dice']} {valid_dice}")
 
-    # validation
-    dice, meaniou, assd = trainer.valid(dataloader["test"], -1, args.batch_size)
-    logger.info(f"initial model EVAl | Dice:{dice} Mean IoU: {meaniou} assd: {assd} ")
-
-    num_dataset = len(dataloader["labeled"].dataset)
-    labeled_percent, dice_list = [], []
-
-    ratio = round(len(dataloader["labeled"].sampler.indices) / num_dataset, 4)
-    labeled_percent.append(ratio)
-    dice_list.append(dice)
-    trainer.save(f"{args.checkpoint}/cycle={-1}&labeled={ratio}&dice={dice:.3f}&time={time.time()}.pth")
+    budget = int(config["AL"]["budget"] * num_dataset)
+    query = int(config["AL"]["query"] * num_dataset)
 
     cycle = 0
-    budget = int(args.budget * num_dataset)
-    query = int(args.query * num_dataset)
-    total_cycle = (budget // query) + 1
     while budget > 0:
         logger.info(f"cycle {cycle} | budget : {budget} query : {query}")
 
@@ -50,48 +62,31 @@ def al_cycle(args, logger):
         cycle += 1
 
         query_strategy.sample(query)
-
         logger.info(f'add {query} samplers to labeled dataset')
 
         # retrain model on updated dataloader
-        loss, dice, clsdice = trainer.train(dataloader, args.epoch, cycle)
-        if loss == dice == None:
-            break
-        logger.info(f"CYCLE {cycle} TRAIN | avg_loss: {loss} avg_dice:{dice}{clsdice} ")
-
-        dice, meaniou, assd = trainer.valid(dataloader["test"], cycle, args.batch_size)
+        val_metric = trainer.train(dataloader, cycle)
+        valid_dice = "[" + ' '.join("{0:.4f}".format(x) for x in val_metric['class_dice']) + "]"
         logger.info(
-            f'Cycle {cycle} EVAl | len(dl): {len(dataloader["labeled"].sampler.indices)} len(du): {len(dataloader["unlabeled"].sampler.indices)} |  avg_dice:{dice} avg_mean_iou: {meaniou} avg_assd: {assd} ')
+            f"Cycle{cycle} TRAIN | avg_loss: {val_metric['loss']} Dice:{val_metric['avg_fg_dice']} {valid_dice}")
 
-        ratio = np.round(len(dataloader["labeled"].sampler.indices) / num_dataset, 4)
+        ratio = np.round(len(dataloader["labeled"].sampler.indices) / num_dataset, 2)
         labeled_percent.append(ratio)
-        dice_list.append(np.round(dice, 4))
-        save_query_plot(args.output_dir, labeled_percent, dice_list)
-        # save checkpoint
-        trainer.save(f"{args.checkpoint}/cycle={cycle}&labeled={ratio}&dice={dice:.3f}&time={time.time()}.pth")
+        dice_list.append(np.round(val_metric['avg_fg_dice'], 4))
+        save_query_plot(config["Training"]["output_dir"], labeled_percent, dice_list)
 
+        # save checkpoint
         if len(dataloader["unlabeled"].sampler.indices) == 0:
             break
 
-        if args.forget_weight:
-            logger.info("forget weight")
-            # reset model
-            trainer.forget_weight(cycle, total_cycle)
-    save_query_plot(args.output_dir, labeled_percent, dice_list)
-    writer.flush()
-    writer.close()
+        trainer.summ_writer.flush()
+        trainer.summ_writer.close()
 
 
 if __name__ == "__main__":
-    import torch.backends.cudnn as cudnn
 
-    cudnn.benchmark = False
-    cudnn.deterministic = True
+    config = parse_config()
 
-    args = parse_arg()
-    random_seed(args.seed)
-    logger = init_logger(args)
+    random_seed(config)
 
-    logger.info(args)
-
-    al_cycle(args=args, logger=logger)
+    main(config)

@@ -938,7 +938,7 @@ class URPCMGTrainer(BaseTrainer):
                 batch_slices = zoom(batch_slices, (1, 1, input_size / h, input_size / w), order=0,
                                     mode='nearest')
                 batch_slices = torch.from_numpy(batch_slices).to(self.args.device)
-                output = torch.sloss_regtack(self.model(batch_slices)).mean(0)
+                output = torch.stack(self.model(batch_slices)).mean(0)
                 batch_pred_mask = output.argmax(dim=1).cpu()
                 batch_pred_mask = zoom(batch_pred_mask, (1, h / input_size, w / input_size), order=0,
                                        mode='nearest')

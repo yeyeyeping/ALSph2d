@@ -10,6 +10,8 @@ import random
 from argparse import ArgumentParser
 import time
 import logging
+
+
 class AverageMeter(object):
     """Computes and stores the average and current value"""
 
@@ -147,7 +149,10 @@ def label_smooth(volume):
     return volume
 
 
-def get_dataloader(args, with_pseudo=False):
+def get_dataloader(config, with_pseudo=False):
+    data_dir = config["Dataset"]["data_dir"]
+    batch_size = config["Dataset"]["batch_size"]
+    num_worker = config["Dataset"]["num_workers"]
     from dataset.ACDCDataset import ACDCDataset2d, ACDCDataset3d
     train_transform = A.Compose([
         A.PadIfNeeded(256, 256),
@@ -162,49 +167,49 @@ def get_dataloader(args, with_pseudo=False):
     #     A.VerticalFlip(),
     #     A.RandomRotate90(p=0.2),
     # ])
-    dataset_train, dataset_val = ACDCDataset2d(trainfolder=join(args.data_dir, "train"),
+    dataset_train, dataset_val = ACDCDataset2d(trainfolder=join(data_dir, "train"),
                                                transform=train_transform), \
-        ACDCDataset3d(folder=join(args.data_dir, "test"))
-    labeled_sampler, *unlabeled_sampler = get_samplers(len(dataset_train), args.initial_labeled,
+        ACDCDataset3d(folder=join(data_dir, "test"))
+    labeled_sampler, *unlabeled_sampler = get_samplers(len(dataset_train), config["AL"]["initial_labeled"],
                                                        with_pseudo=with_pseudo)
     retval = {}
     if with_pseudo:
         from dataset.SphDataset import PseudoDataset2d
         unlabeled_sampler, pseudo_sampler = unlabeled_sampler
-        dpseudo = torch.utils.data.DataLoader(PseudoDataset2d(datafolder=join(args.data_dir, "train"),
+        dpseudo = torch.utils.data.DataLoader(PseudoDataset2d(datafolder=join(num_worker, "train"),
                                                               transform=train_transform),
-                                              batch_size=args.batch_size,
+                                              batch_size=batch_size,
                                               sampler=pseudo_sampler,
                                               persistent_workers=True,
                                               pin_memory=True,
-                                              prefetch_factor=4,
-                                              num_workers=args.num_workers)
+                                              prefetch_factor=num_worker,
+                                              num_workers=num_worker)
         retval["pseudo"] = dpseudo
     else:
         unlabeled_sampler = unlabeled_sampler[0]
 
     dulabeled = torch.utils.data.DataLoader(dataset_train,
-                                            batch_size=args.batch_size,
+                                            batch_size=batch_size,
                                             sampler=unlabeled_sampler,
                                             persistent_workers=True,
                                             pin_memory=True,
-                                            prefetch_factor=4,
-                                            num_workers=args.num_workers)
+                                            prefetch_factor=num_worker,
+                                            num_workers=num_worker)
 
     dlabeled = torch.utils.data.DataLoader(dataset_train,
-                                           batch_size=args.batch_size,
+                                           batch_size=batch_size,
                                            sampler=labeled_sampler,
                                            persistent_workers=True,
                                            pin_memory=True,
-                                           prefetch_factor=4,
-                                           num_workers=args.num_workers)
+                                           prefetch_factor=num_worker,
+                                           num_workers=num_worker)
 
     dval = torch.utils.data.DataLoader(dataset_val,
                                        batch_size=1,
                                        persistent_workers=True,
                                        pin_memory=True,
-                                       prefetch_factor=4,
-                                       num_workers=args.num_workers)
+                                       prefetch_factor=num_worker,
+                                       num_workers=num_worker)
 
     return {
         **retval,
@@ -239,31 +244,39 @@ def get_current_consistency_weight(epoch):
 
 
 def read_yml(filepath):
-    assert not os.path.exists(filepath), "file not exist"
+    assert os.path.exists(filepath), "file not exist"
     with open(filepath) as fp:
         config = yaml.load(fp, yaml.FullLoader)
     return config
 
 
-def random_seed(seed):
+def random_seed(config):
+    import torch.backends.cudnn as cudnn
+    seed = config["Training"]["seed"]
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-    torch.backends.cudnn.enabled = True
-    torch.backends.cudnn.benchmark = True
+
+    cudnn.benchmark = False
+    cudnn.deterministic = True
 
 
-def init_logger(args):
+def init_logger(config):
+    import sys
     logger = logging.getLogger(__name__)
     logger.propagate = False
-    fh = logging.FileHandler(f"{args.output_dir}/{time.time()}.log")
+    logger.setLevel(logging.INFO)
+    outputdir = config["Training"]["output_dir"]
+    fh = logging.FileHandler(f"{outputdir}/{time.time()}.log")
     fh.setFormatter(logging.Formatter('%(asctime)s %(message)s'))
     logger.addHandler(fh)
-    logger.info(str(args))
+    logger.addHandler(logging.StreamHandler(sys.stdout))
+    logger.info(f"Query Strategy: {outputdir}")
+    logger.info(config)
     return logger
 
 
-def parse_arg():
+def parse_config():
     parser = ArgumentParser()
     parser.add_argument("--config", type=str,
                         default="config/config.yml")
@@ -278,10 +291,9 @@ def parse_arg():
 
     os.makedirs(config["Training"]["output_dir"], exist_ok=True)
 
-    checkpoint_dir = os.path.join(config["Training"]["output_dir"], "checkpoint")
-
-    os.makedirs(checkpoint_dir)
-
+    config["Training"]["checkpoint_dir"] = os.path.join(config["Training"]["output_dir"], "checkpoint")
+    os.makedirs(config["Training"]["checkpoint_dir"], exist_ok=True)
+    config["all_strategy"] = all_strategy
     return config
 
 

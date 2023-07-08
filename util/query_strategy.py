@@ -38,12 +38,13 @@ class LimitSortedList(object):
         if len(self._data) > self.limit:
             self._data = sorted(self._data, key=lambda x: x[1], reverse=self.descending)[:self.limit]
 
+
 class QueryStrategy(object):
 
-    def __init__(self, unlabeled_dataloader: DataLoader, labeled_dataloader: DataLoader, **kwargs) -> None:
+    def __init__(self, dataloader: DataLoader) -> None:
         super().__init__()
-        self.unlabeled_dataloader = unlabeled_dataloader
-        self.labeled_dataloader = labeled_dataloader
+        self.unlabeled_dataloader = dataloader["unlabeled"]
+        self.labeled_dataloader = dataloader["labeled"]
 
     def select_dataset_idx(self, query_num):
         raise NotImplementedError
@@ -61,9 +62,17 @@ class QueryStrategy(object):
         for item in img_idx:
             self.unlabeled_dataloader.sampler.indices.remove(item)
 
+
+class RandomQuery(QueryStrategy):
+    def sample(self, query_num):
+        np.random.shuffle(self.unlabeled_dataloader.sampler.indices)
+        self.labeled_dataloader.sampler.indices.extend(self.unlabeled_dataloader.sampler.indices[:query_num])
+        del self.unlabeled_dataloader.sampler.indices[:query_num]
+
+
 class SimpleQueryStrategy(QueryStrategy):
-    def __init__(self, unlabeled_dataloader: DataLoader, labeled_dataloader: DataLoader, **kwargs) -> None:
-        super().__init__(unlabeled_dataloader, labeled_dataloader)
+    def __init__(self, dataloader: DataLoader, **kwargs) -> None:
+        super().__init__(dataloader)
         assert "trainer" in kwargs
         assert "descending" in kwargs
         self.trainer = kwargs["trainer"]
@@ -88,41 +97,39 @@ class SimpleQueryStrategy(QueryStrategy):
             q.extend(idx_entropy)
         return q.data
 
-class RandomQuery(QueryStrategy):
-    def sample(self, query_num):
-        np.random.shuffle(self.unlabeled_dataloader.sampler.indices)
-        self.labeled_dataloader.sampler.indices.extend(self.unlabeled_dataloader.sampler.indices[:query_num])
-        del self.unlabeled_dataloader.sampler.indices[:query_num]
 
 class MaxEntropy(SimpleQueryStrategy):
 
-    def __init__(self, unlabeled_dataloader: DataLoader, labeled_dataloader: DataLoader, **kwargs) -> None:
-        super().__init__(unlabeled_dataloader, labeled_dataloader, descending=True, **kwargs)
+    def __init__(self, dataloader: DataLoader, **kwargs) -> None:
+        super().__init__(dataloader, descending=True, **kwargs)
 
     def compute_score(self, model_output):
         model_output, _ = model_output
         return f.max_entropy(model_output.softmax(dim=1))
 
+
 class MarginConfidence(SimpleQueryStrategy):
 
-    def __init__(self, unlabeled_dataloader: DataLoader, labeled_dataloader: DataLoader, **kwargs) -> None:
-        super().__init__(unlabeled_dataloader, labeled_dataloader, descending=False, **kwargs)
+    def __init__(self, dataloader: DataLoader, **kwargs) -> None:
+        super().__init__(dataloader, descending=False, **kwargs)
 
     def compute_score(self, model_output):
         model_output, _ = model_output
         return f.margin_confidence(model_output.softmax(dim=1))
 
+
 class LeastConfidence(SimpleQueryStrategy):
-    def __init__(self, unlabeled_dataloader: DataLoader, labeled_dataloader: DataLoader, **kwargs) -> None:
-        super().__init__(unlabeled_dataloader, labeled_dataloader, descending=False, **kwargs)
+    def __init__(self, dataloader: DataLoader, **kwargs) -> None:
+        super().__init__(dataloader, descending=False, **kwargs)
 
     def compute_score(self, model_output):
         model_output, _ = model_output
         return f.least_confidence(model_output.softmax(dim=1))
 
+
 class TAAL(QueryStrategy):
-    def __init__(self, unlabeled_dataloader: DataLoader, labeled_dataloader: DataLoader, **kwargs) -> None:
-        super().__init__(unlabeled_dataloader, labeled_dataloader)
+    def __init__(self, dataloader: DataLoader, **kwargs) -> None:
+        super().__init__(dataloader)
         assert "trainer" in kwargs
         self.model = kwargs["trainer"].model
         self.num_augmentations = int(kwargs.get("num_augmentations", 10))
@@ -144,9 +151,10 @@ class TAAL(QueryStrategy):
 
         return q.data
 
+
 class BALD(QueryStrategy):
-    def __init__(self, unlabeled_dataloader: DataLoader, labeled_dataloader: DataLoader, **kwargs) -> None:
-        super().__init__(unlabeled_dataloader, labeled_dataloader)
+    def __init__(self, dataloader: DataLoader, **kwargs) -> None:
+        super().__init__(dataloader)
         assert "trainer" in kwargs
         self.model = kwargs["trainer"].model
         self.dropout_round = int(kwargs.get("dropout_round", 10))
@@ -173,10 +181,11 @@ class BALD(QueryStrategy):
 
         return q.data
 
+
 class LossPredictionQuery(SimpleQueryStrategy):
 
-    def __init__(self, unlabeled_dataloader: DataLoader, labeled_dataloader: DataLoader, **kwargs) -> None:
-        super().__init__(unlabeled_dataloader, labeled_dataloader, descending=True, **kwargs)
+    def __init__(self, dataloader: DataLoader, **kwargs) -> None:
+        super().__init__(dataloader, descending=True, **kwargs)
 
     @torch.no_grad()
     def compute_score(self, model_output):
@@ -185,10 +194,11 @@ class LossPredictionQuery(SimpleQueryStrategy):
         pred_loss = self.trainer.loss_predition_module(features)
         return pred_loss
 
+
 class CoresetQuery(QueryStrategy):
 
-    def __init__(self, unlabeled_dataloader: DataLoader, labeled_dataloader: DataLoader, **kwargs) -> None:
-        super().__init__(unlabeled_dataloader, labeled_dataloader)
+    def __init__(self, dataloader: DataLoader, **kwargs) -> None:
+        super().__init__(dataloader)
         assert "trainer" in kwargs
         self.trainer = kwargs["trainer"]
         self.model = kwargs["trainer"].model
@@ -253,9 +263,10 @@ class CoresetQuery(QueryStrategy):
 
         return idxs
 
+
 class UncertaintyBatchQuery(QueryStrategy):
-    def __init__(self, unlabeled_dataloader: DataLoader, labeled_dataloader: DataLoader, **kwargs) -> None:
-        super().__init__(unlabeled_dataloader, labeled_dataloader)
+    def __init__(self, dataloader: DataLoader, **kwargs) -> None:
+        super().__init__(dataloader)
         assert "trainer" in kwargs
         self.model = kwargs["trainer"].model
 
@@ -285,15 +296,16 @@ class UncertaintyBatchQuery(QueryStrategy):
         selected_batch = np.asarray(splits[max_idx])
         return selected_batch[:, 0].astype(np.uint64)
 
+
 class ContrastiveQuery(QueryStrategy):
-    def __init__(self, unlabeled_dataloader: DataLoader, labeled_dataloader: DataLoader, **kwargs) -> None:
-        super().__init__(unlabeled_dataloader, labeled_dataloader)
+    def __init__(self, dataloader: DataLoader, **kwargs) -> None:
+        super().__init__(dataloader)
         assert "trainer" in kwargs
         self.model = kwargs["trainer"].model
         self.k = int(kwargs.get("constrative_sampler_num", 20))
         self.distance_measure = kwargs.get("distance_measure", "cosine")
         assert self.k < len(
-            unlabeled_dataloader.sampler.indices), f"{self.k} > {len(labeled_dataloader.sampler.indices)}"
+            self.unlabeled_dataloader.sampler.indices), f"{self.k} > {len(self.labeled_dataloader.sampler.indices)}"
         pool_size = int(kwargs.get("pool_size", 12))
         self.pool = nn.AdaptiveAvgPool2d((pool_size, pool_size))
         self.pool.eval()
@@ -346,14 +358,15 @@ class ContrastiveQuery(QueryStrategy):
 
         return map(lambda x: x[0], sorted(q, key=lambda x: x[1])[:query_num])
 
+
 class DEALQuery(SimpleQueryStrategy):
-    def __init__(self, unlabeled_dataloader: DataLoader, labeled_dataloader: DataLoader, **kwargs) -> None:
+    def __init__(self, dataloader: DataLoader, **kwargs) -> None:
         funcstr = kwargs.get("difficulty_strategy", "max_entropy")
         assert funcstr in f.__dict__, f"{funcstr} not implement"
         if funcstr in ("max_entropy", "hisgram_entropy"):
-            super().__init__(unlabeled_dataloader, labeled_dataloader, descending=True, **kwargs)
+            super().__init__(dataloader, descending=True, **kwargs)
         else:
-            super().__init__(unlabeled_dataloader, labeled_dataloader, descending=False, **kwargs)
+            super().__init__(dataloader, descending=False, **kwargs)
         self.score_func = f.__dict__[funcstr]
 
     @torch.no_grad()
@@ -363,10 +376,23 @@ class DEALQuery(SimpleQueryStrategy):
         difficulty_map, _ = self.trainer.pam(model_output)
         return self.score_func(model_output.softmax(1), difficulty_map)
 
+
+class OnlineMGQuery(SimpleQueryStrategy):
+
+    def __init__(self, dataloader: DataLoader, **kwargs) -> None:
+        super().__init__(dataloader, descending=True, **kwargs)
+
+    @torch.no_grad()
+    def compute_score(self, model_output):
+        output = torch.stack(model_output)
+        return f.JSD(output)
+
+
+# todo:这里需要适配进来
+
 class MGQuery(QueryStrategy):
 
-    def __init__(self, loader,
-                 trainer, pseudo_num) -> None:
+    def __init__(self, loader, trainer, pseudo_num) -> None:
 
         super().__init__(loader["unlabeled"], loader["labeled"])
         self.pseudo_dataloader = loader["pseudo"]
@@ -430,14 +456,5 @@ class MGQuery(QueryStrategy):
         for item in pseudo_idx:
             self.unlabeled_dataloader.sampler.indices.remove(item)
 
-class OnlineMGQuery(SimpleQueryStrategy):
-
-    def __init__(self, unlabeled_dataloader: DataLoader, labeled_dataloader: DataLoader, **kwargs) -> None:
-        super().__init__(unlabeled_dataloader, labeled_dataloader, descending=True, **kwargs)
-
-    @torch.no_grad()
-    def compute_score(self, model_output):
-        output = torch.stack(model_output)
-        return f.JSD(output)
 
 URPCMGQuery = OnlineMGQuery
