@@ -64,6 +64,10 @@ class QueryStrategy(object):
 
 
 class RandomQuery(QueryStrategy):
+
+    def __init__(self, dataloader: DataLoader, **kwargs) -> None:
+        super().__init__(dataloader)
+
     def sample(self, query_num):
         np.random.shuffle(self.unlabeled_dataloader.sampler.indices)
         self.labeled_dataloader.sampler.indices.extend(self.unlabeled_dataloader.sampler.indices[:query_num])

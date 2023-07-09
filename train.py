@@ -44,7 +44,7 @@ def main(config):
 
     initial_ratio = np.round(len(dataloader["labeled"].sampler.indices) / num_dataset, 2)
     labeled_percent.append(initial_ratio)
-    dice_list.append(val_metric['avg_fg_dice'])
+    dice_list.append(np.round(val_metric['avg_fg_dice'], 4))
 
     valid_dice = "[" + ' '.join("{0:.4f}".format(x) for x in val_metric['class_dice']) + "]"
     logger.info(

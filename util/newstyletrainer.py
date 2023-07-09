@@ -26,7 +26,7 @@ class BaseTrainer:
         self.logger = kwargs["logger"]
         self.additional_param = kwargs
         self.model = self.build_model()
-        self.max_val_dice = 0
+        self.max_val_scalar = None
         self.criterion = self.build_criterion()
         self.optimizer = self.build_optimizer()
         self.scheduler = self.build_sched(self.optimizer)
@@ -181,12 +181,12 @@ class BaseTrainer:
         early_stop = self.config["Training"]["early_stop_patience"]
 
         if cycle > 0:
-            bestwts_last = f"{self.config['Training']['checkpoint_dir']}/c{cycle - 1}_best{self.max_val_dice:.4f}.pt"
+            bestwts_last = f"{self.config['Training']['checkpoint_dir']}/c{cycle - 1}_best{self.max_val_scalar['avg_fg_dice']:.4f}.pt"
             ckpoint = torch.load(bestwts_last, map_location=self.device)
             self.model.load_state_dict(ckpoint['model_state_dict'])
             self.optimizer.load_state_dict(ckpoint['optimizer_state_dict'])
 
-        self.max_val_dice = 0
+        self.max_val_scalar = None
         max_performance_it = 0
 
         self.train_iter = iter(dataloader["labeled"])
@@ -209,9 +209,9 @@ class BaseTrainer:
 
             self.write_scalars(train_scalars, valid_scalars, lr_value, self.glob_it)
 
-            if valid_scalars["avg_fg_dice"] > self.max_val_dice:
+            if self.max_val_scalar is None or valid_scalars["avg_fg_dice"] > self.max_val_scalar["avg_fg_dice"]:
                 max_performance_it = self.glob_it
-                self.max_val_dice = valid_scalars["avg_fg_dice"]
+                self.max_val_scalar = valid_scalars
                 self.best_model_wts = {
                     'model_state_dict': copy.deepcopy(self.model.state_dict()),
                     'optimizer_state_dict': copy.deepcopy(self.optimizer.state_dict()),
@@ -221,14 +221,14 @@ class BaseTrainer:
                 self.logger.info("The training is early stopped")
                 break
         # best
-        save_path = f"{self.config['Training']['checkpoint_dir']}/c{cycle}_best{self.max_val_dice:.4f}.pt"
+        save_path = f"{self.config['Training']['checkpoint_dir']}/c{cycle}_best{self.max_val_scalar['avg_fg_dice']:.4f}.pt"
         torch.save(self.best_model_wts, save_path)
 
         # latest
         save_path = f"{self.config['Training']['checkpoint_dir']}/c{cycle}_g{self.glob_it}_l{self.glob_it - start_it}_latest{valid_scalars['avg_fg_dice']:.4f}.pt"
         save_dict = {'model_state_dict': self.model.state_dict(), 'optimizer_state_dict': self.optimizer.state_dict()}
         torch.save(save_dict, save_path)
-        return valid_scalars
+        return self.max_val_scalar
 
 
 class ConsistencyMGNetTrainer(BaseTrainer):
@@ -278,7 +278,7 @@ class ConsistencyMGNetTrainer(BaseTrainer):
 
     def train(self, dataloader, cycle):
         self.unlab_it = iter(dataloader["unlabeled"])
-        super().train(dataloader, cycle)
+        return super().train(dataloader, cycle)
 
     def batch_forward(self, img, mask, to_onehot_y=False):
         if self.model.training:

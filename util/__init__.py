@@ -278,9 +278,9 @@ def init_logger(config):
 
 def parse_config():
     parser = ArgumentParser()
-    parser.add_argument("--config", type=str,
+    parser.add_argument("--config", "-c", type=str,
                         default="config/config.yml")
-    parser.add_argument("--strategy", type=str,
+    parser.add_argument("--strategy", "-s", type=str,
                         default="config/strategy.yml")
     args = parser.parse_args()
 

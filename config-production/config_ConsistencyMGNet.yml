@@ -1,13 +1,13 @@
 AL:
   budget: 0.2
-  initial_labeled: 0.2
-  query: 0.01
-  query_strategy: "RandomQuery"
+  initial_labeled: 0.1
+  query: 0.02
+  query_strategy: "OnlineMGQuery"
 
 Dataset:
   data_dir: "data/ACDCprecessed"
-  batch_size: 16 #for dev
-  num_workers: 1
+  batch_size: 16
+  num_workers: 3
   input_size: 192
 
 Training:
@@ -24,6 +24,7 @@ Training:
   rampup_start: 3000
   rampup_end: 30000
   regularize_w: 0.1
+
 Network:
   classnum: 4
   ndf: 16
