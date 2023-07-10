@@ -24,12 +24,24 @@ MGQuery:
 UncertaintyBatchQuery:
   <<: *base
 
+
+
 OnlineMGQuery:
   <<: *base
+  class: "OnlineMGQuery"
   trainer:
     module: "util.newstyletrainer"
     class: "ConsistencyMGNetTrainer"
     additional_param: { }
+
+OnlinePseudoMGQuery:
+  <<: *base
+  class: "OnlineMGQuery"
+  trainer:
+    module: "util.newstyletrainer"
+    class: "PseudoMGNetTrainer"
+    additional_param: { }
+
 
 URPCMGQuery:
   <<: *base

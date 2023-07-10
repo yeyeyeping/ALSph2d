@@ -2,7 +2,7 @@ AL:
   budget: 0.2
   initial_labeled: 0.2
   query: 0.01
-  query_strategy: "RandomQuery"
+  query_strategy: "OnlinePseudoMGQuery"
 
 Dataset:
   data_dir: "data/ACDCprecessed"

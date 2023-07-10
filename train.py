@@ -7,7 +7,7 @@ import importlib
 
 def getclass(module, classname):
     module = importlib.import_module(module)
-    assert hasattr(module, classname), "Not Implement"
+    assert hasattr(module, classname), f"{classname} Not Implement"
     return module.__dict__[classname]
 
 
@@ -18,6 +18,8 @@ def get_trainer(config, dataloader, logger):
     trainer_class = getclass(strategy_section["trainer"]["module"],
                              strategy_section["trainer"]["class"])
     trainer_obj = trainer_class(config, logger=logger, *strategy_section["trainer"]["additional_param"])
+
+    query_strategy = query_strategy if "class" not in strategy_section else query_strategy["class"]
 
     strategy_class = getclass(strategy_section["module"], query_strategy)
     strategy_obj = strategy_class(dataloader, trainer=trainer_obj, *strategy_section["additional_param"])

@@ -18,12 +18,12 @@ Training:
   early_stop_patience: 1000
   lr: 2.5e-3
   lr_gamma: 0.5
-  ReduceLROnPlateau_patience: 4000
+  ReduceLROnPlateau_patience: 10
   weight_decay: 1.0e-5
   seed: 3407
   rampup_start: 3000
   rampup_end: 30000
-  regularize_w: 0.1
+  regularize_w: 0.05
 
 
 Network:
