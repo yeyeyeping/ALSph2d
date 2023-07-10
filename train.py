@@ -19,7 +19,7 @@ def get_trainer(config, dataloader, logger):
                              strategy_section["trainer"]["class"])
     trainer_obj = trainer_class(config, logger=logger, *strategy_section["trainer"]["additional_param"])
 
-    query_strategy = query_strategy if "class" not in strategy_section else query_strategy["class"]
+    query_strategy = query_strategy if "class" not in strategy_section else strategy_section["class"]
 
     strategy_class = getclass(strategy_section["module"], query_strategy)
     strategy_obj = strategy_class(dataloader, trainer=trainer_obj, *strategy_section["additional_param"])

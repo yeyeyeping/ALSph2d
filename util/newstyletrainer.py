@@ -1,6 +1,6 @@
 import copy
 from torch import nn
-from monai.losses import DiceCELoss
+from monai.losses import DiceCELoss, DiceLoss
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import datetime
 import time
@@ -343,6 +343,88 @@ class ConsistencyMGNetTrainer(BaseTrainer):
                          (torch.mean(exp_var) + 1e-8) + torch.mean(var)
                 loss_reg += loss_i
             loss_reg = loss_reg / len(unlabeled_output)
+            alpha = get_rampup_ratio(self.glob_it, ramp_start, ramp_end, mode="sigmoid") * regularize_w
+
+            loss = loss_sup + alpha * loss_reg
+            loss.backward()
+            self.optimizer.step()
+
+            train_loss += loss.item()
+            train_loss_sup = train_loss_sup + loss_sup.item()
+            train_loss_reg = train_loss_reg + loss_reg.item()
+
+            preds = output.detach().mean(0)[:imglb_l].argmax(1, keepdims=True)
+            bin_mask = one_hot(preds, classnum)
+            soft_y = onehot_mask.permute(0, 2, 3, 1).reshape((-1, 4))
+            predict = bin_mask.permute(0, 2, 3, 1).reshape((-1, 4))
+            dice_tesnsor = get_classwise_dice(predict, soft_y).cpu().numpy()
+            train_dice_list.append(dice_tesnsor)
+        train_avg_loss = train_loss / iter_valid
+        train_avg_loss_sup = train_loss_sup / iter_valid
+        train_avg_loss_reg = train_loss_reg / iter_valid
+        train_cls_dice = np.asarray(train_dice_list).mean(axis=0)
+        train_avg_dice = train_cls_dice[1:].mean()
+        train_scalers = {'loss': train_avg_loss, 'loss_sup': train_avg_loss_sup,
+                         'loss_reg': train_avg_loss_reg, 'avg_fg_dice': train_avg_dice, \
+                         'class_dice': train_cls_dice}
+        return train_scalers
+
+
+class PseudoMGNetTrainer(ConsistencyMGNetTrainer):
+    def training(self, dataloader):
+        trainloader, unlbloader = dataloader["labeled"], dataloader["unlabeled"]
+        iter_valid = self.config["Training"]["iter_valid"]
+        classnum = self.config["Network"]["classnum"]
+        ramp_start = self.config["Training"]["rampup_start"]
+        ramp_end = self.config["Training"]["rampup_end"]
+        regularize_w = self.config["Training"]["regularize_w"]
+        self.model.train()
+        train_loss = 0
+        train_loss_sup = 0
+        train_loss_reg = 0
+        train_dice_list = []
+        dice_loss = DiceLoss(reduction="none")
+        for it in range(iter_valid):
+            try:
+                imglb, masklb = next(self.train_iter)
+            except StopIteration:
+                self.train_iter = iter(trainloader)
+                imglb, masklb = next(self.train_iter)
+
+            try:
+                imgub, _ = next(self.unlab_it)
+            except StopIteration:
+                self.unlab_it = iter(unlbloader)
+                imgub, _ = next(self.unlab_it)
+
+            imglb_l = len(imglb)
+            img = torch.cat([imglb, imgub], dim=0)
+            img, masklb = img.to(self.device), masklb.to(self.device)
+            onehot_mask = one_hot(masklb, classnum)
+
+            self.optimizer.zero_grad()
+            output = torch.stack(self.model(img)).softmax(dim=2)
+            labeled_output, unlabeled_output = output[:, :imglb_l], output[:, imglb_l:]
+
+            # dicece loss for labeled data
+            labeled_mask = onehot_mask[None].repeat_interleave(len(labeled_output), 0)
+            G, N, C, H, W = labeled_output.shape
+            outshape = [G * N, C, H, W]
+            labeled_output = torch.reshape(labeled_output, shape=outshape)
+            labeled_mask = torch.reshape(labeled_mask, shape=outshape)
+            loss_sup = self.criterion(labeled_output, labeled_mask)
+            # Pseudo Label loss
+            G, N, C, H, W = unlabeled_output.shape
+            outshape = [G * N, C, H, W]
+            batched_output = torch.reshape(unlabeled_output, shape=outshape)
+            pseudo_label = one_hot(batched_output.detach().argmax(dim=1).unsqueeze(1), 4)
+            loss_list = torch.sum(dice_loss(batched_output, pseudo_label), dim=[-1, -2, -3])
+            group_loss_list = loss_list.reshape([G, N])
+            idx = torch.argsort(group_loss_list, dim=1)
+            num_select = output.shape[0] // 4
+            idx_select = idx[:, :num_select][torch.randperm(idx.shape[0])]
+            loss_reg = torch.gather(group_loss_list, 1, idx_select).mean()
+
             alpha = get_rampup_ratio(self.glob_it, ramp_start, ramp_end, mode="sigmoid") * regularize_w
 
             loss = loss_sup + alpha * loss_reg
