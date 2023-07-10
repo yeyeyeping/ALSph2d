@@ -308,7 +308,6 @@ class ConsistencyMGNetTrainer(BaseTrainer):
             except StopIteration:
                 self.train_iter = iter(trainloader)
                 imglb, masklb = next(self.train_iter)
-
             try:
                 imgub, _ = next(self.unlab_it)
             except StopIteration:
