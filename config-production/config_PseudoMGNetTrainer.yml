@@ -11,7 +11,7 @@ Dataset:
   input_size: 192
 
 Training:
-  output_dir:
+  output_dir: "OnlineMGQuery_PseudoMGNet"
   device: "cuda:0"
   iter_max: 4000
   iter_valid: 100
