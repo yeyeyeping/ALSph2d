@@ -1,0 +1,26 @@
+2023-07-10 11:01:05,398 Query Strategy: RandomQuery
+2023-07-10 11:01:05,398 {'AL': {'budget': 0.2, 'initial_labeled': 0.2, 'query': 0.01, 'query_strategy': 'RandomQuery'}, 'Dataset': {'data_dir': 'data/ACDCprecessed', 'batch_size': 16, 'num_workers': 1, 'input_size': 192}, 'Training': {'output_dir': 'RandomQuery', 'device': 'cuda:0', 'iter_max': 200, 'iter_valid': 100, 'early_stop_patience': 1000, 'lr': 0.0025, 'lr_gamma': 0.5, 'ReduceLROnPlateau_patience': 600, 'weight_decay': 1e-05, 'seed': 3407, 'rampup_start': 3000, 'rampup_end': 30000, 'regularize_w': 0.1, 'checkpoint_dir': 'RandomQuery/checkpoint'}, 'Network': {'classnum': 4, 'ndf': 16}, 'all_strategy': {'__Base': {'module': 'util.query_strategy', 'additional_param': {}, 'trainer': {'module': 'util.newstyletrainer', 'class': 'BaseTrainer', 'additional_param': {}}}, 'RandomQuery': {'module': 'util.query_strategy', 'additional_param': {}, 'trainer': {'module': 'util.newstyletrainer', 'class': 'BaseTrainer', 'additional_param': {}}}, 'MaxEntropy': {'module': 'util.query_strategy', 'additional_param': {}, 'trainer': {'module': 'util.newstyletrainer', 'class': 'BaseTrainer', 'additional_param': {}}}, 'MarginConfidence': {'module': 'util.query_strategy', 'additional_param': {}, 'trainer': {'module': 'util.newstyletrainer', 'class': 'BaseTrainer', 'additional_param': {}}}, 'LeastConfidence': {'module': 'util.query_strategy', 'additional_param': {}, 'trainer': {'module': 'util.newstyletrainer', 'class': 'BaseTrainer', 'additional_param': {}}}, 'MGQuery': {'module': 'util.query_strategy', 'additional_param': {}, 'trainer': {'module': 'util.newstyletrainer', 'class': 'BaseTrainer', 'additional_param': {}}}, 'UncertaintyBatchQuery': {'module': 'util.query_strategy', 'additional_param': {}, 'trainer': {'module': 'util.newstyletrainer', 'class': 'BaseTrainer', 'additional_param': {}}}, 'OnlineMGQuery': {'module': 'util.query_strategy', 'additional_param': {}, 'trainer': {'module': 'util.newstyletrainer', 'class': 'PseudoMGNetTrainer', 'additional_param': {}}}, 'URPCMGQuery': {'module': 'util.query_strategy', 'additional_param': {}, 'trainer': {'module': 'util.newstyletrainer', 'class': 'URPCMGTrainer', 'additional_param': {}}}, 'BALD': {'module': 'util.query_strategy', 'additional_param': {'drop_round': 10}, 'trainer': {'module': 'util.newstyletrainer', 'class': 'BALDTrainer', 'additional_param': {}}}, 'LossPredictionQuery': {'module': 'util.query_strategy', 'additional_param': {}, 'trainer': {'module': 'util.newstyletrainer', 'class': 'LearningLossTrainer', 'additional_param': {}}}, 'CoresetQuery': {'module': 'util.query_strategy', 'additional_param': {'pool_size': 12}, 'trainer': {'module': 'util.newstyletrainer', 'class': 'CoresetTrainer', 'additional_param': {}}}, 'ContrastiveQuery': {'module': 'util.query_strategy', 'additional_param': {'constrative_sampler_num': 20, 'pool_size': 12, 'distance_measure': 'cosine'}, 'trainer': {'module': 'util.newstyletrainer', 'class': 'ContrastiveTrainer', 'additional_param': {}}}, 'DEALQuery': {'module': 'util.query_strategy', 'additional_param': {'difficulty_strategy': 'max_entropy'}, 'trainer': {'module': 'util.newstyletrainer', 'class': 'DEALTrainer', 'additional_param': {}}}, 'TAAL': {'module': 'util.query_strategy', 'additional_param': {'num_augmentations': 10}, 'trainer': {'module': 'util.newstyletrainer', 'class': 'TTATrainer', 'additional_param': {'num_augmentations': 3}}}}}
+2023-07-10 11:01:05,401 Initial configuration: len(du): 1050 len(dl): 262 
+2023-07-10 11:01:06,286 strategy:<class 'util.query_strategy.RandomQuery'>  param:{}
+2023-07-10 11:01:06,286 trainer:<class 'util.newstyletrainer.BaseTrainer'> param: {}
+2023-07-10 11:03:30,633 
+2023-07-10 11:03:30 iteration 100
+2023-07-10 11:03:30,633 learning rate 0.0025
+2023-07-10 11:03:30,633 training/validation time:108.6327/35.6980
+2023-07-10 11:03:30,642 train loss 1.6519, avg foreground dice 0.2076 [0.9447 0.1162 0.1183 0.3885]
+2023-07-10 11:03:30,642 valid loss 1.4171, avg foreground dice 0.3800 [0.9755 0.2160 0.3931 0.5309]
+2023-07-10 11:05:53,006 
+2023-07-10 11:05:53 iteration 200
+2023-07-10 11:05:53,007 learning rate 0.0025
+2023-07-10 11:05:53,007 training/validation time:107.0638/35.2954
+2023-07-10 11:05:53,007 train loss 1.2436, avg foreground dice 0.5601 [0.9815 0.3929 0.5673 0.7201]
+2023-07-10 11:05:53,007 valid loss 1.1863, avg foreground dice 0.5677 [0.9826 0.4233 0.5867 0.6931]
+2023-07-10 11:05:53,072 initial model TRAIN | avg_loss: 1.1862560153007506 Dice:0.5676833333333332 [0.9826 0.4233 0.5867 0.6931]
+2023-07-10 11:05:53,072 cycle 0 | budget : 262 query : 13
+2023-07-10 11:05:53,072 add 13 samplers to labeled dataset
+2023-07-10 11:08:15,470 
+2023-07-10 11:08:15 iteration 300
+2023-07-10 11:08:15,471 learning rate 0.0025
+2023-07-10 11:08:15,471 training/validation time:107.1043/35.2936
+2023-07-10 11:08:15,471 train loss 1.1463, avg foreground dice 0.6155 [0.9848 0.4789 0.6178 0.7498]
+2023-07-10 11:08:15,471 valid loss 1.1025, avg foreground dice 0.6397 [0.9857 0.5043 0.6786 0.7362]

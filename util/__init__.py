@@ -169,7 +169,7 @@ def get_dataloader(config, with_pseudo=False):
     # ])
     dataset_train, dataset_val = ACDCDataset2d(trainfolder=join(data_dir, "train"),
                                                transform=train_transform), \
-        ACDCDataset3d(folder=join(data_dir, "test"))
+        ACDCDataset3d(folder=join(data_dir, "valid"))
     labeled_sampler, *unlabeled_sampler = get_samplers(len(dataset_train), config["AL"]["initial_labeled"],
                                                        with_pseudo=with_pseudo)
     retval = {}

@@ -28,8 +28,15 @@ OnlineMGQuery:
   <<: *base
   trainer:
     module: "util.newstyletrainer"
-    class: "ConsistencyMGNetTrainer"
+    class: "PseudoMGNetTrainer"
     additional_param: { }
+
+#OnlineMGQuery:
+#  <<: *base
+#  trainer:
+#    module: "util.newstyletrainer"
+#    class: "ConsistencyMGNetTrainer"
+#    additional_param: { }
 
 URPCMGQuery:
   <<: *base
