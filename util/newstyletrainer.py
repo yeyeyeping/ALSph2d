@@ -6,7 +6,6 @@ import datetime
 import time
 from torch.optim import Adam
 from model import UNetWithFeature, initialize_weights
-from torch.utils.data import DataLoader
 from monai.networks.utils import one_hot
 import torch
 import numpy as np
@@ -151,7 +150,7 @@ class BaseTrainer:
                 output, loss = self.batch_forward(batch_slices, mask_slices, to_onehot_y=True)
                 volume_loss += loss.item()
                 batch_pred_mask = output.argmax(dim=1).cpu()
-                batch_pred_mask = zoom(batch_pred_mask, (1, h / input_size, w / input_size), order=0,
+                batch_pred_mask = zoom(batch_pred_mask, (1, h / input_size, w / input_size), order=2,
                                        mode='nearest')
                 batch_pred.append(batch_pred_mask)
 
@@ -346,6 +345,8 @@ class ConsistencyMGNetTrainer(BaseTrainer):
             alpha = get_rampup_ratio(self.glob_it, ramp_start, ramp_end, mode="sigmoid") * regularize_w
 
             loss = loss_sup + alpha * loss_reg
+
+
             loss.backward()
             self.optimizer.step()
 
@@ -417,7 +418,7 @@ class PseudoMGNetTrainer(ConsistencyMGNetTrainer):
             G, N, C, H, W = unlabeled_output.shape
             outshape = [G * N, C, H, W]
             batched_output = torch.reshape(unlabeled_output, shape=outshape)
-            pseudo_label = one_hot(batched_output.detach().argmax(dim=1).unsqueeze(1), 4)
+            pseudo_label = one_hot(batched_output.detach().argmax(dim=1).unsqueeze(1), 4).detach()
             loss_list = torch.sum(dice_loss(batched_output, pseudo_label), dim=[-1, -2, -3])
             group_loss_list = loss_list.reshape([G, N])
             idx = torch.argsort(group_loss_list, dim=1)

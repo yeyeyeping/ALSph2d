@@ -1,0 +1,31 @@
+AL:
+  budget: 0.2
+  initial_labeled: 0.1
+  query: 0.02
+  query_strategy: "MaxEntropy"
+
+Dataset:
+  data_dir: "data/ACDCprecessed"
+  batch_size: 16 #
+  num_workers: 3
+  input_size: 192
+
+Training:
+  output_dir:
+  device: "cuda:0"
+  iter_max: 100 #
+  iter_valid: 100
+  early_stop_patience: 1000
+  lr: 2.5e-3
+  lr_gamma: 0.5
+  ReduceLROnPlateau_patience: 15
+  weight_decay: 1.0e-5
+  seed: 3407
+  rampup_start: 2000
+  rampup_end: 30000
+  regularize_w: 0.05
+
+
+Network:
+  classnum: 4
+  ndf: 16

@@ -82,7 +82,7 @@ def main(config):
         if len(dataloader["unlabeled"].sampler.indices) == 0:
             break
 
-        trainer.finish()
+    trainer.finish()
 
 
 if __name__ == "__main__":

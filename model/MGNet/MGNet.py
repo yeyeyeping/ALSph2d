@@ -172,6 +172,7 @@ if __name__ == '__main__':
         "deep_supervision": False,
     }
     net = MGNet(params).cuda()
+    print(net)
 
 
 

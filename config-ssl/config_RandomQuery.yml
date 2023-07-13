@@ -1,0 +1,29 @@
+AL:
+  budget: 0
+  initial_labeled: 0.1
+  query: 0.02
+  query_strategy: "RandomQuery"
+
+Dataset:
+  data_dir: "data/ACDCprecessed"
+  batch_size: 16
+  num_workers: 3
+  input_size: 192
+
+Training:
+  output_dir:
+  device: "cuda:0"
+  iter_max: 100
+  iter_valid: 100
+  early_stop_patience: 10000
+  lr: 1.0e-3
+  lr_gamma: 0.5
+  ReduceLROnPlateau_patience: 40
+  weight_decay: 1.0e-5
+  seed: 3407
+
+
+Network:
+  classnum: 4
+  ndf: 16
+
