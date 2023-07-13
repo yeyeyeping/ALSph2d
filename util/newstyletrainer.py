@@ -121,8 +121,9 @@ class BaseTrainer:
 
     @torch.no_grad()
     def validation(self, dataloader):
-        valid_loader = dataloader["test"]
         self.model.eval()
+
+        valid_loader = dataloader["test"]
         classnum = self.config["Network"]["classnum"]
         batch_size = self.config["Dataset"]["batch_size"]
         input_size = self.config["Dataset"]["input_size"]
@@ -134,29 +135,29 @@ class BaseTrainer:
             h, w = img.shape[-2], img.shape[-1]
             batch_pred = []
             volume_loss = 0
+            zoomed_img = zoom(img, (1, 1, input_size / h, input_size / w), order=1,
+                              mode='nearest')
+            zoomed_mask = zoom(mask, (1, 1, input_size / h, input_size / w), order=0,
+                               mode='nearest')
+
             for batch in range(0, img.shape[0], batch_size):
                 last = batch + batch_size
                 last = last if last < img.shape[0] else None
-                batch_slices, mask_slices = img[batch:last], mask[batch:last]
+                batch_slices, mask_slices = zoomed_img[batch:last], zoomed_mask[batch:last]
 
-                batch_slices = zoom(batch_slices, (1, 1, input_size / h, input_size / w), order=2,
-                                    mode='nearest')
-                mask_slices = zoom(mask_slices, (1, 1, input_size / h, input_size / w), order=0,
-                                   mode='nearest')
-
-                batch_slices = torch.from_numpy(batch_slices).to(self.device)
-                mask_slices = torch.from_numpy(mask_slices).to(self.device)
+                batch_slices = torch.tensor(batch_slices, device=self.device)
+                mask_slices = torch.tensor(mask_slices, device=self.device)
 
                 output, loss = self.batch_forward(batch_slices, mask_slices, to_onehot_y=True)
                 volume_loss += loss.item()
-                batch_pred_mask = output.argmax(dim=1).cpu()
-                batch_pred_mask = zoom(batch_pred_mask, (1, h / input_size, w / input_size), order=2,
-                                       mode='nearest')
-                batch_pred.append(batch_pred_mask)
+                batch_pred.append(output.cpu().numpy())
 
             pred_volume = np.concatenate(batch_pred)
+            pred_volume = zoom(pred_volume, (1, 1, h / input_size, w / input_size), order=1,
+                               mode='nearest')
             del batch_pred
-            dice, _, _ = get_multi_class_metric(pred_volume,
+            batch_pred_mask = pred_volume.argmax(axis=1)
+            dice, _, _ = get_multi_class_metric(batch_pred_mask,
                                                 np.asarray(mask.squeeze(1)),
                                                 classnum, include_backgroud=True, )
             valid_loss.append(volume_loss)
@@ -166,7 +167,8 @@ class BaseTrainer:
         valid_cls_dice = np.asarray(dice_his).mean(axis=0)
         valid_avg_dice = valid_cls_dice[1:].mean()
 
-        valid_scalers = {'loss': valid_avg_loss, 'avg_fg_dice': valid_avg_dice, \
+        valid_scalers = {'loss': valid_avg_loss,
+                         'avg_fg_dice': valid_avg_dice,
                          'class_dice': valid_cls_dice}
         return valid_scalers
 
@@ -345,7 +347,6 @@ class ConsistencyMGNetTrainer(BaseTrainer):
             alpha = get_rampup_ratio(self.glob_it, ramp_start, ramp_end, mode="sigmoid") * regularize_w
 
             loss = loss_sup + alpha * loss_reg
-
 
             loss.backward()
             self.optimizer.step()

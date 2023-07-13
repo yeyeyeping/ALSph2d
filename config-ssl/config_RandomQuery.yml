@@ -13,7 +13,7 @@ Dataset:
 Training:
   output_dir:
   device: "cuda:0"
-  iter_max: 100
+  iter_max: 30000
   iter_valid: 100
   early_stop_patience: 10000
   lr: 1.0e-3
