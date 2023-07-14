@@ -1,3 +1,4 @@
+from pymic.loss.seg.deep_sup import match_prediction_and_gt_shape
 import copy
 from torch import nn
 from monai.losses import DiceCELoss, DiceLoss
@@ -288,7 +289,7 @@ class ConsistencyMGNetTrainer(BaseTrainer):
         if self.model.training:
             raise NotImplementedError
         else:
-            o = torch.stack(self.model(img), dim=0)
+            o = torch.stack(self.model(img)[0], dim=0)
             G, N, C, H, W = o.shape
             output = self.conv(o.permute(1, 2, 0, 3, 4).reshape(N, G * C, H, W)).softmax(1)
             if to_onehot_y:
@@ -327,39 +328,49 @@ class ConsistencyMGNetTrainer(BaseTrainer):
             onehot_mask = one_hot(masklb, classnum)
 
             self.optimizer.zero_grad()
-            output = torch.stack(self.model(img))
+
+            output, mul_pred = self.model(img)
+
+            output = torch.stack(output)
             labeled_output, unlabeled_output = output[:, :imglb_l], output[:, imglb_l:].softmax(dim=2)
 
             # dicece loss for labeled data
-            G, N, C, H, W = labeled_output.shape
-
+            # G, N, C, H, W = labeled_output.shape
             # permute_out = labeled_output.permute(1, 2, 0, 3, 4).reshape(N, G * C, H, W)
             # loss_sup1 = self.criterion(self.conv(permute_out).softmax(1), onehot_mask)
 
+            G, N, C, H, W = labeled_output.shape
             labeled_mask = onehot_mask[None].repeat_interleave(len(labeled_output), 0)
             outshape = [G * N, C, H, W]
             labeled_output = torch.reshape(labeled_output, shape=outshape)
             labeled_mask = torch.reshape(labeled_mask, shape=outshape)
-            loss_sup2 = self.criterion(labeled_output.softmax(1), labeled_mask)
+            loss_sup = self.criterion(labeled_output.softmax(1), labeled_mask)
+
+            # deep supervision
+            mul_pred = [pred[:imglb_l].softmax(1) for pred in mul_pred]
+            pred, mask = match_prediction_and_gt_shape(mul_pred[0], onehot_mask, 0)
+            deepsup_loss = self.criterion(pred, mask)
+
+            for pred in mul_pred[1:]:
+                pred, mask = match_prediction_and_gt_shape(pred, onehot_mask, 0)
+                deepsup_loss += self.criterion(pred, mask)
 
             # loss_sup = 0.3 * loss_sup2 + 0.7 * loss_sup1
-            loss_sup = loss_sup2
             # Consistency loss
-            # avg_pred = torch.mean(unlabeled_output, dim=0) * 0.99 + 0.005
-            # loss_reg = 0
-            # for aux in unlabeled_output:
-            #     aux = aux * 0.99 + 0.005
-            #     var = torch.sum(nn.functional.kl_div(aux.log(), avg_pred, reduction="none"), dim=1, keepdim=True)
-            #     exp_var = torch.exp(-var)
-            #     square_e = torch.square(avg_pred - aux)
-            #     loss_i = torch.mean(square_e * exp_var) / \
-            #              (torch.mean(exp_var) + 1e-8) + torch.mean(var)
-            #     loss_reg += loss_i
-            # loss_reg = loss_reg / len(unlabeled_output)
-            loss_reg = torch.tensor(0)
+            avg_pred = torch.mean(unlabeled_output, dim=0) * 0.99 + 0.005
+            loss_reg = 0
+            for aux in unlabeled_output:
+                aux = aux * 0.99 + 0.005
+                var = torch.sum(nn.functional.kl_div(aux.log(), avg_pred, reduction="none"), dim=1, keepdim=True)
+                exp_var = torch.exp(-var)
+                square_e = torch.square(avg_pred - aux)
+                loss_i = torch.mean(square_e * exp_var) / \
+                         (torch.mean(exp_var) + 1e-8) + torch.mean(var)
+                loss_reg += loss_i
+            loss_reg = loss_reg / len(unlabeled_output)
             alpha = get_rampup_ratio(self.glob_it, ramp_start, ramp_end, mode="sigmoid") * regularize_w
 
-            loss = loss_sup + alpha * loss_reg
+            loss = loss_sup + alpha * loss_reg + 0.5 * deepsup_loss / 4
 
             loss.backward()
             self.optimizer.step()
