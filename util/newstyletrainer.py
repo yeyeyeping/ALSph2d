@@ -238,7 +238,7 @@ class ConsistencyMGNetTrainer(BaseTrainer):
             "class_num": 4,
             "in_chns": 1,
             "block_type": "UNetBlock",
-            "feature_chns": [64, 128, 256, 512],
+            "feature_chns": [64, 128, 256, 512, 1024],
             "feature_grps": [4, 4, 4, 4, 1],
             "norm_type": "group_norm",
             "acti_func": "relu",
