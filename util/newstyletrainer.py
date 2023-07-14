@@ -250,6 +250,9 @@ class ConsistencyMGNetTrainer(BaseTrainer):
 
     def build_model(self):
         from model.MGNet.MGNet import MGNet
+        self.conv = nn.Sequential(nn.Conv2d(16, 4, 1, groups=4), nn.Conv2d(4, 4, 1, groups=4)).to(self.device)
+        self.conv.apply(lambda param: initialize_weights(param, 1))
+
         model = MGNet(self.param).to(self.device)
         model.apply(lambda param: initialize_weights(param, 1))
         return model
@@ -285,7 +288,9 @@ class ConsistencyMGNetTrainer(BaseTrainer):
         if self.model.training:
             raise NotImplementedError
         else:
-            output = torch.mean(torch.stack(self.model(img), dim=0), 0).softmax(1)
+            o = torch.stack(self.model(img), dim=0)
+            G, N, C, H, W = o.shape
+            output = self.conv(o.permute(1, 2, 0, 3, 4).reshape(N, G * C, H, W)).softmax(1)
             if to_onehot_y:
                 mask = one_hot(mask, self.config["Network"]["classnum"])
             loss = self.criterion(output, mask)
@@ -322,28 +327,36 @@ class ConsistencyMGNetTrainer(BaseTrainer):
             onehot_mask = one_hot(masklb, classnum)
 
             self.optimizer.zero_grad()
-            output = torch.stack(self.model(img)).softmax(dim=2)
-            labeled_output, unlabeled_output = output[:, :imglb_l], output[:, imglb_l:]
+            output = torch.stack(self.model(img))
+            labeled_output, unlabeled_output = output[:, :imglb_l], output[:, imglb_l:].softmax(dim=2)
 
             # dicece loss for labeled data
-            labeled_mask = onehot_mask[None].repeat_interleave(len(labeled_output), 0)
             G, N, C, H, W = labeled_output.shape
+
+            # permute_out = labeled_output.permute(1, 2, 0, 3, 4).reshape(N, G * C, H, W)
+            # loss_sup1 = self.criterion(self.conv(permute_out).softmax(1), onehot_mask)
+
+            labeled_mask = onehot_mask[None].repeat_interleave(len(labeled_output), 0)
             outshape = [G * N, C, H, W]
             labeled_output = torch.reshape(labeled_output, shape=outshape)
             labeled_mask = torch.reshape(labeled_mask, shape=outshape)
-            loss_sup = self.criterion(labeled_output, labeled_mask)
+            loss_sup2 = self.criterion(labeled_output.softmax(1), labeled_mask)
+
+            # loss_sup = 0.3 * loss_sup2 + 0.7 * loss_sup1
+            loss_sup = loss_sup2
             # Consistency loss
-            avg_pred = torch.mean(unlabeled_output, dim=0) * 0.99 + 0.005
-            loss_reg = 0
-            for aux in unlabeled_output:
-                aux = aux * 0.99 + 0.005
-                var = torch.sum(nn.functional.kl_div(aux.log(), avg_pred, reduction="none"), dim=1, keepdim=True)
-                exp_var = torch.exp(-var)
-                square_e = torch.square(avg_pred - aux)
-                loss_i = torch.mean(square_e * exp_var) / \
-                         (torch.mean(exp_var) + 1e-8) + torch.mean(var)
-                loss_reg += loss_i
-            loss_reg = loss_reg / len(unlabeled_output)
+            # avg_pred = torch.mean(unlabeled_output, dim=0) * 0.99 + 0.005
+            # loss_reg = 0
+            # for aux in unlabeled_output:
+            #     aux = aux * 0.99 + 0.005
+            #     var = torch.sum(nn.functional.kl_div(aux.log(), avg_pred, reduction="none"), dim=1, keepdim=True)
+            #     exp_var = torch.exp(-var)
+            #     square_e = torch.square(avg_pred - aux)
+            #     loss_i = torch.mean(square_e * exp_var) / \
+            #              (torch.mean(exp_var) + 1e-8) + torch.mean(var)
+            #     loss_reg += loss_i
+            # loss_reg = loss_reg / len(unlabeled_output)
+            loss_reg = torch.tensor(0)
             alpha = get_rampup_ratio(self.glob_it, ramp_start, ramp_end, mode="sigmoid") * regularize_w
 
             loss = loss_sup + alpha * loss_reg
@@ -367,7 +380,7 @@ class ConsistencyMGNetTrainer(BaseTrainer):
         train_cls_dice = np.asarray(train_dice_list).mean(axis=0)
         train_avg_dice = train_cls_dice[1:].mean()
         train_scalers = {'loss': train_avg_loss, 'loss_sup': train_avg_loss_sup,
-                         'loss_reg': train_avg_loss_reg, 'avg_fg_dice': train_avg_dice, \
+                         'loss_reg': train_avg_loss_reg, 'avg_fg_dice': train_avg_dice,
                          'class_dice': train_cls_dice}
         return train_scalers
 
