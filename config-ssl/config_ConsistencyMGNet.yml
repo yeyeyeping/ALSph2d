@@ -13,17 +13,17 @@ Dataset:
 Training:
   output_dir:
   device: "cuda:0"
-  iter_max: 30000
+  iter_max: 300
   iter_valid: 100
   early_stop_patience: 10000
-  lr: 1e-3
+  lr: 1.0e-3
   lr_gamma: 0.5
   ReduceLROnPlateau_patience: 40
   weight_decay: 1.0e-5
   seed: 3407
   rampup_start: 2000
   rampup_end: 35000
-  regularize_w: 0.05
+  regularize_w: 0.1
 
 Network:
   classnum: 4
