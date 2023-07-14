@@ -23,7 +23,7 @@ Training:
   seed: 3407
   rampup_start: 2000
   rampup_end: 35000
-  regularize_w: 0.05
+  regularize_w: 0.1
 
 Network:
   classnum: 4
