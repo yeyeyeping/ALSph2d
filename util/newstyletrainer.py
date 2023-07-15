@@ -23,6 +23,7 @@ class BaseTrainer:
         super().__init__()
         self.config = config
         self.device = self.config["Training"]["device"]
+
         self.logger = kwargs["logger"]
         self.additional_param = kwargs
         self.model = self.build_model()
@@ -331,8 +332,8 @@ class ConsistencyMGNetTrainer(BaseTrainer):
 
             output, mul_pred = self.model(img)
 
-            output = torch.stack(output)
-            labeled_output, unlabeled_output = output[:, :imglb_l], output[:, imglb_l:].softmax(dim=2)
+            output = torch.stack(output).softmax(dim=2)
+            labeled_output, unlabeled_output = output[:, :imglb_l], output[:, imglb_l:]
 
             # dicece loss for labeled data
             # G, N, C, H, W = labeled_output.shape
@@ -344,18 +345,8 @@ class ConsistencyMGNetTrainer(BaseTrainer):
             outshape = [G * N, C, H, W]
             labeled_output = torch.reshape(labeled_output, shape=outshape)
             labeled_mask = torch.reshape(labeled_mask, shape=outshape)
-            loss_sup = self.criterion(labeled_output.softmax(1), labeled_mask)
+            loss_sup = self.criterion(labeled_output, labeled_mask)
 
-            # deep supervision
-            mul_pred = [pred[:imglb_l].softmax(1) for pred in mul_pred]
-            pred, mask = match_prediction_and_gt_shape(mul_pred[0], onehot_mask, 0)
-            deepsup_loss = self.criterion(pred, mask)
-
-            for pred in mul_pred[1:]:
-                pred, mask = match_prediction_and_gt_shape(pred, onehot_mask, 0)
-                deepsup_loss += self.criterion(pred, mask)
-
-            # loss_sup = 0.3 * loss_sup2 + 0.7 * loss_sup1
             # Consistency loss
             avg_pred = torch.mean(unlabeled_output, dim=0) * 0.99 + 0.005
             loss_reg = 0
@@ -368,9 +359,21 @@ class ConsistencyMGNetTrainer(BaseTrainer):
                          (torch.mean(exp_var) + 1e-8) + torch.mean(var)
                 loss_reg += loss_i
             loss_reg = loss_reg / len(unlabeled_output)
-            alpha = get_rampup_ratio(self.glob_it, ramp_start, ramp_end, mode="sigmoid") * regularize_w
 
-            loss = loss_sup + alpha * loss_reg + 0.5 * deepsup_loss / 4
+            alpha = get_rampup_ratio(self.glob_it, ramp_start, ramp_end, mode="sigmoid") * regularize_w
+            loss = loss_sup + alpha * loss_reg
+
+            if self.config["Training"]["deep_supervision"] is True:
+                # for deep supervision
+                mul_pred = [pred[:imglb_l].softmax(1) for pred in mul_pred]
+                pred, mask = match_prediction_and_gt_shape(mul_pred[0], onehot_mask, 0)
+                deepsup_loss = self.criterion(pred, mask)
+
+                for pred in mul_pred[1:]:
+                    pred, mask = match_prediction_and_gt_shape(pred, onehot_mask, 0)
+                    deepsup_loss += self.criterion(pred, mask)
+                deepsup_loss = deepsup_loss / len(mul_pred)
+                loss += deepsup_loss
 
             loss.backward()
             self.optimizer.step()

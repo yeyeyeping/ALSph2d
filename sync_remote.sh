@@ -1,0 +1,1 @@
+ rsync --rsh ssh -crt  /home/yeep/project/py/ALSph2d/ huaxi-dev:/yeping/new/syncACDC --exclude=data
