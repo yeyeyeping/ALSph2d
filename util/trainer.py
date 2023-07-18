@@ -451,7 +451,7 @@ class MGTrainer(BaseTrainer):
         super().__init__(args, logger, writer, param)
 
     def build_model(self):
-        from model.MGNet.MGNet import MGNet
+        from model.MGNet_bak.MGNet import MGNet
         model = MGNet(self.param).to(self.args.device)
         model.apply(lambda param: initialize_weights(param, 1))
         return model
@@ -651,7 +651,7 @@ class OnlineMGTrainer(BaseTrainer):
         super().__init__(args, logger, writer, param)
 
     def build_model(self):
-        from model.MGNet.MGNet import MGNet
+        from model.MGNet_bak.MGNet import MGNet
         model = MGNet(self.param).to(self.args.device)
         model.apply(lambda param: initialize_weights(param, 1))
         return model
@@ -816,7 +816,7 @@ class URPCMGTrainer(BaseTrainer):
         super().__init__(args, logger, writer, param)
 
     def build_model(self):
-        from model.MGNet.MGNet import MGNet
+        from model.MGNet_bak.MGNet import MGNet
         model = MGNet(self.param).to(self.args.device)
         model.apply(lambda param: initialize_weights(param, 1))
         return model

@@ -2,7 +2,7 @@ AL:
   budget: 0
   initial_labeled: 0.1
   query: 0.02
-  query_strategy: "OnlineMGQuery"
+  query_strategy: "URPCQuery"
 
 Dataset:
   data_dir: "data/ACDCprecessed"
@@ -11,14 +11,14 @@ Dataset:
   input_size: 192
 
 Training:
-  output_dir: "gn+bn+ds+linear+patience20"
+  output_dir:
   device: "cuda:0"
   iter_max: 30000
   iter_valid: 100
   early_stop_patience: 10000
   lr: 1.0e-3
   lr_gamma: 0.5
-  ReduceLROnPlateau_patience: 20
+  ReduceLROnPlateau_patience: 40
   weight_decay: 1.0e-5
   seed: 3407
   rampup_start: 2000

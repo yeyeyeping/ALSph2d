@@ -249,11 +249,21 @@ class ConsistencyMGNetTrainer(BaseTrainer):
             "deep_supervision": False,
         }
         super().__init__(config, **kwargs)
+        # self.class_criterion = [
+        #     DiceCELoss(include_background=True, softmax=False,
+        #                ce_weight=torch.tensor([0.1, 0.5, 0.2, 0.2], device=self.device)),
+        #     DiceCELoss(include_background=True, softmax=False,
+        #                ce_weight=torch.tensor([0.1, 0.2, 0.5, 0.2], device=self.device)),
+        #     DiceCELoss(include_background=True, softmax=False,
+        #                ce_weight=torch.tensor([0.1, 0.2, 0.2, 0.5], device=self.device)),
+        #     DiceCELoss(include_background=True, softmax=False,
+        #                ce_weight=torch.tensor([0.1, 0.3, 0.3, 0.3], device=self.device)),
+        # ]
 
     def build_model(self):
-        from model.MGNet.MGNet import MGNet
-        self.conv = nn.Sequential(nn.Conv2d(16, 4, 1, groups=4), nn.Conv2d(4, 4, 1, groups=4)).to(self.device)
-        self.conv.apply(lambda param: initialize_weights(param, 1))
+        from model.MGNet.MGNet import GMGNet as MGNet
+        # self.conv = nn.Sequential(nn.Conv2d(16, 4, 1, groups=4), nn.Conv2d(4, 4, 1, groups=4)).to(self.device)
+        # self.conv.apply(lambda param: initialize_weights(param, 1))
 
         model = MGNet(self.param).to(self.device)
         model.apply(lambda param: initialize_weights(param, 1))
@@ -290,9 +300,11 @@ class ConsistencyMGNetTrainer(BaseTrainer):
         if self.model.training:
             raise NotImplementedError
         else:
-            o = torch.stack(self.model(img)[0], dim=0)
-            G, N, C, H, W = o.shape
-            output = self.conv(o.permute(1, 2, 0, 3, 4).reshape(N, G * C, H, W)).softmax(1)
+            # o = torch.stack(self.model(img)[0], dim=0)
+            # G, N, C, H, W = o.shape
+            # output = self.conv(o.permute(1, 2, 0, 3, 4).reshape(N, G * C, H, W)).softmax(1)
+
+            output = torch.stack(self.model(img)[0], dim=0).mean(0)
             if to_onehot_y:
                 mask = one_hot(mask, self.config["Network"]["classnum"])
             loss = self.criterion(output, mask)
@@ -336,10 +348,6 @@ class ConsistencyMGNetTrainer(BaseTrainer):
             labeled_output, unlabeled_output = output[:, :imglb_l], output[:, imglb_l:]
 
             # dicece loss for labeled data
-            # G, N, C, H, W = labeled_output.shape
-            # permute_out = labeled_output.permute(1, 2, 0, 3, 4).reshape(N, G * C, H, W)
-            # loss_sup1 = self.criterion(self.conv(permute_out).softmax(1), onehot_mask)
-
             G, N, C, H, W = labeled_output.shape
             labeled_mask = onehot_mask[None].repeat_interleave(len(labeled_output), 0)
             outshape = [G * N, C, H, W]
@@ -347,6 +355,11 @@ class ConsistencyMGNetTrainer(BaseTrainer):
             labeled_mask = torch.reshape(labeled_mask, shape=outshape)
             loss_sup = self.criterion(labeled_output, labeled_mask)
 
+            # different loss for different branch
+            # loss_sup = 0
+            # for i, p in enumerate(labeled_output):
+            #     loss_sup += self.class_criterion[i](p, onehot_mask)
+            # loss_sup /= labeled_output.shape[0]
             # Consistency loss
             avg_pred = torch.mean(unlabeled_output, dim=0) * 0.99 + 0.005
             loss_reg = 0
@@ -360,20 +373,27 @@ class ConsistencyMGNetTrainer(BaseTrainer):
                 loss_reg += loss_i
             loss_reg = loss_reg / len(unlabeled_output)
 
-            alpha = get_rampup_ratio(self.glob_it, ramp_start, ramp_end, mode="sigmoid") * regularize_w
+            alpha = get_rampup_ratio(self.glob_it, ramp_start, ramp_end, mode="linear") * regularize_w
             loss = loss_sup + alpha * loss_reg
 
             if self.config["Training"]["deep_supervision"] is True:
-                # for deep supervision
-                mul_pred = [pred[:imglb_l].softmax(1) for pred in mul_pred]
-                pred, mask = match_prediction_and_gt_shape(mul_pred[0], onehot_mask, 0)
-                deepsup_loss = self.criterion(pred, mask)
 
-                for pred in mul_pred[1:]:
-                    pred, mask = match_prediction_and_gt_shape(pred, onehot_mask, 0)
-                    deepsup_loss += self.criterion(pred, mask)
-                deepsup_loss = deepsup_loss / len(mul_pred)
+                # for grouped deep supervision
+                deepsup_loss = 0
+                for chunked_pred in mul_pred:
+                    for pred in chunked_pred:
+                        pred, mask = match_prediction_and_gt_shape(pred, onehot_mask, 0)
+                        deepsup_loss += self.criterion(pred[:imglb_l].softmax(1), mask)
+                deepsup_loss = deepsup_loss / len(mul_pred) / len(mul_pred[0])
                 loss += deepsup_loss
+                # for deep supervision
+                # deepsup_loss = 0
+                # for chunked_pred in mul_pred:
+                #     pred, mask = match_prediction_and_gt_shape(chunked_pred, onehot_mask, 0)
+                #     deepsup_loss += self.criterion(pred[:imglb_l].softmax(1), mask)
+                #
+                # deepsup_loss = deepsup_loss / len(mul_pred)
+                # loss += deepsup_loss
 
             loss.backward()
             self.optimizer.step()
@@ -437,6 +457,7 @@ class PseudoMGNetTrainer(ConsistencyMGNetTrainer):
 
             # dicece loss for labeled data
             labeled_mask = onehot_mask[None].repeat_interleave(len(labeled_output), 0)
+
             G, N, C, H, W = labeled_output.shape
             outshape = [G * N, C, H, W]
             labeled_output = torch.reshape(labeled_output, shape=outshape)
@@ -477,5 +498,128 @@ class PseudoMGNetTrainer(ConsistencyMGNetTrainer):
         train_avg_dice = train_cls_dice[1:].mean()
         train_scalers = {'loss': train_avg_loss, 'loss_sup': train_avg_loss_sup,
                          'loss_reg': train_avg_loss_reg, 'avg_fg_dice': train_avg_dice, \
+                         'class_dice': train_cls_dice}
+        return train_scalers
+
+
+class URPCTrainer(BaseTrainer):
+    def write_scalars(self, train_scalars, valid_scalars, lr_value, glob_it):
+        loss_scalar = {'train': train_scalars['loss'],
+                       'valid': valid_scalars['loss']}
+        loss_sup_scalar = {'train': train_scalars['loss_sup']}
+        loss_upsup_scalar = {'train': train_scalars['loss_reg']}
+        dice_scalar = {'train': train_scalars['avg_fg_dice'], 'valid': valid_scalars['avg_fg_dice']}
+        self.summ_writer.add_scalars('loss', loss_scalar, glob_it)
+        self.summ_writer.add_scalars('loss_sup', loss_sup_scalar, glob_it)
+        self.summ_writer.add_scalars('loss_reg', loss_upsup_scalar, glob_it)
+        self.summ_writer.add_scalars('lr', {"lr": lr_value}, glob_it)
+        self.summ_writer.add_scalars('dice', dice_scalar, glob_it)
+        class_num = self.config['Network']['classnum']
+        for c in range(class_num):
+            cls_dice_scalar = {'train': train_scalars['class_dice'][c], \
+                               'valid': valid_scalars['class_dice'][c]}
+            self.summ_writer.add_scalars('class_{0:}_dice'.format(c), cls_dice_scalar, glob_it)
+        self.logger.info('train loss {0:.4f}, avg foreground dice {1:.4f} '.format(
+            train_scalars['loss'], train_scalars['avg_fg_dice']) + "[" + \
+                         ' '.join("{0:.4f}".format(x) for x in train_scalars['class_dice']) + "]")
+        self.logger.info('valid loss {0:.4f}, avg foreground dice {1:.4f} '.format(
+            valid_scalars['loss'], valid_scalars['avg_fg_dice']) + "[" + \
+                         ' '.join("{0:.4f}".format(x) for x in valid_scalars['class_dice']) + "]")
+
+    def train(self, dataloader, cycle):
+        self.unlab_it = iter(dataloader["unlabeled"])
+        return super().train(dataloader, cycle)
+
+    def build_model(self):
+        from model.Unet import UNetWithURPC
+        model = UNetWithURPC(1, self.config["Network"]["classnum"], self.config["Network"]["ndf"]).to(self.device)
+        model.apply(lambda param: initialize_weights(param, 1))
+        return model
+
+    def training(self, dataloader):
+        trainloader, unlbloader = dataloader["labeled"], dataloader["unlabeled"]
+        iter_valid = self.config["Training"]["iter_valid"]
+        classnum = self.config["Network"]["classnum"]
+        ramp_start = self.config["Training"]["rampup_start"]
+        ramp_end = self.config["Training"]["rampup_end"]
+        regularize_w = self.config["Training"]["regularize_w"]
+        self.model.train()
+        train_loss = 0
+        train_loss_sup = 0
+        train_loss_reg = 0
+        train_dice_list = []
+        for it in range(iter_valid):
+            try:
+                imglb, masklb = next(self.train_iter)
+            except StopIteration:
+                self.train_iter = iter(trainloader)
+                imglb, masklb = next(self.train_iter)
+
+            try:
+                imgub, _ = next(self.unlab_it)
+            except StopIteration:
+                self.unlab_it = iter(unlbloader)
+                imgub, _ = next(self.unlab_it)
+
+            imglb_l = len(imglb)
+            img = torch.cat([imglb, imgub], dim=0)
+            img, masklb = img.to(self.device), masklb.to(self.device)
+            onehot_mask = one_hot(masklb, classnum)
+
+            self.optimizer.zero_grad()
+
+            output, mul_pred = self.model(img)
+
+            output = output.softmax(dim=1)
+            labeled_output, unlabeled_output = output[:imglb_l], output[imglb_l:]
+
+            for i in range(0, len(mul_pred)):
+                mul_pred[i] = nn.functional.interpolate(mul_pred[i],
+                                                        output[0].shape[1:])
+            labeled_aux, unlabeled_aux = zip(
+                *((aux[:imglb_l].softmax(1), aux[imglb_l:].softmax(1)) for aux in mul_pred))
+
+            # supervised loss and deep supervision
+            aux_preds = torch.cat([labeled_output, *labeled_aux])
+            labeled_mask = onehot_mask.repeat(len(labeled_aux) + 1, 1, 1, 1)
+            loss_sup = self.criterion(aux_preds, labeled_mask)
+
+            # Consistency loss
+            stacked_unlabeled = torch.stack([unlabeled_output, *unlabeled_aux])
+            avg_pred = torch.mean(stacked_unlabeled, dim=0) * 0.99 + 0.005
+            loss_reg = 0
+            for aux in stacked_unlabeled:
+                aux = aux * 0.99 + 0.005
+                var = torch.sum(nn.functional.kl_div(aux.log(), avg_pred, reduction="none"), dim=1, keepdim=True)
+                exp_var = torch.exp(-var)
+                square_e = torch.square(avg_pred - aux)
+                loss_i = torch.mean(square_e * exp_var) / \
+                         (torch.mean(exp_var) + 1e-8) + torch.mean(var)
+                loss_reg += loss_i
+            loss_reg = loss_reg / len(stacked_unlabeled)
+
+            alpha = get_rampup_ratio(self.glob_it, ramp_start, ramp_end, mode="sigmoid") * regularize_w
+            loss = loss_sup + alpha * loss_reg
+
+            loss.backward()
+            self.optimizer.step()
+
+            train_loss += loss.item()
+            train_loss_sup = train_loss_sup + loss_sup.item()
+            train_loss_reg = train_loss_reg + loss_reg.item()
+
+            preds = output.detach()[:imglb_l].argmax(1, keepdims=True)
+            bin_mask = one_hot(preds, classnum)
+            soft_y = onehot_mask.permute(0, 2, 3, 1).reshape((-1, 4))
+            predict = bin_mask.permute(0, 2, 3, 1).reshape((-1, 4))
+            dice_tesnsor = get_classwise_dice(predict, soft_y).cpu().numpy()
+            train_dice_list.append(dice_tesnsor)
+        train_avg_loss = train_loss / iter_valid
+        train_avg_loss_sup = train_loss_sup / iter_valid
+        train_avg_loss_reg = train_loss_reg / iter_valid
+        train_cls_dice = np.asarray(train_dice_list).mean(axis=0)
+        train_avg_dice = train_cls_dice[1:].mean()
+        train_scalers = {'loss': train_avg_loss, 'loss_sup': train_avg_loss_sup,
+                         'loss_reg': train_avg_loss_reg, 'avg_fg_dice': train_avg_dice,
                          'class_dice': train_cls_dice}
         return train_scalers

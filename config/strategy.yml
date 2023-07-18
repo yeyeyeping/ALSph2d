@@ -43,11 +43,12 @@ OnlinePseudoMGQuery:
     additional_param: { }
 
 
-URPCMGQuery:
+URPCQuery:
   <<: *base
+  class: "OnlineMGQuery"
   trainer:
     module: "util.newstyletrainer"
-    class: "URPCMGTrainer"
+    class: "URPCTrainer"
     additional_param: { }
 
 BALD:

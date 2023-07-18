@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from model.MGNet.unet2dres import get_acti_func, get_deconv_layer, get_unet_block
+from model.MGNet_bak.unet2dres import get_acti_func, get_deconv_layer, get_unet_block
 from monai.losses import DiceCELoss
 
 
@@ -98,9 +98,12 @@ class MGNet(nn.Module):
         self.conv9 = nn.Conv2d(self.ft_chns[0], self.n_class * self.ft_groups[0],
                                kernel_size=3, padding=1, groups=self.ft_groups[0])
 
-        self.out_conv1 = nn.Conv2d(self.ft_chns[1], self.n_class, kernel_size=1)
-        self.out_conv2 = nn.Conv2d(self.ft_chns[2], self.n_class, kernel_size=1)
-        self.out_conv3 = nn.Conv2d(self.ft_chns[3], self.n_class, kernel_size=1)
+        self.out_conv1 = nn.Conv2d(self.ft_chns[3] * 2, self.n_class * self.ft_groups[0], kernel_size=1,
+                                   groups=self.ft_groups[0])
+        self.out_conv2 = nn.Conv2d(self.ft_chns[2] * 2, self.n_class * self.ft_groups[0], kernel_size=1,
+                                   groups=self.ft_groups[0])
+        self.out_conv3 = nn.Conv2d(self.ft_chns[1] * 2, self.n_class * self.ft_groups[0], kernel_size=1,
+                                   groups=self.ft_groups[0])
 
     def forward(self, x):
         x_shape = list(x.shape)
@@ -159,7 +162,9 @@ class MGNet(nn.Module):
             output = torch.reshape(output, new_shape)
             output = torch.transpose(output, 1, 2)
 
-        mulpred = [self.out_conv1(f7up), self.out_conv2(f6up), self.out_conv3(f5up)]
+        mulpred = [torch.chunk(self.out_conv1(f4cat), self.ft_groups[0], dim=1),
+                   torch.chunk(self.out_conv2(f3cat), self.ft_groups[0], dim=1),
+                   torch.chunk(self.out_conv3(f2cat), self.ft_groups[0], dim=1)]
 
         output_list = torch.chunk(output, self.ft_groups[0], dim=1)
         return output_list, mulpred
@@ -179,4 +184,4 @@ if __name__ == '__main__':
         "deep_supervision": False,
     }
     net = MGNet(params).cuda()
-    print(net)
+
