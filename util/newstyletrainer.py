@@ -261,13 +261,14 @@ class ConsistencyMGNetTrainer(BaseTrainer):
         # ]
 
     def build_model(self):
-        from model.MGNet.MGNet import GMGNet as MGNet
+        from model.MGNet.MGNet import MGNet
         # self.conv = nn.Sequential(nn.Conv2d(16, 4, 1, groups=4), nn.Conv2d(4, 4, 1, groups=4)).to(self.device)
         # self.conv.apply(lambda param: initialize_weights(param, 1))
 
         model = MGNet(self.param).to(self.device)
         model.apply(lambda param: initialize_weights(param, 1))
         return model
+
 
     def write_scalars(self, train_scalars, valid_scalars, lr_value, glob_it):
         loss_scalar = {'train': train_scalars['loss'],
@@ -292,9 +293,11 @@ class ConsistencyMGNetTrainer(BaseTrainer):
             valid_scalars['loss'], valid_scalars['avg_fg_dice']) + "[" + \
                          ' '.join("{0:.4f}".format(x) for x in valid_scalars['class_dice']) + "]")
 
+
     def train(self, dataloader, cycle):
         self.unlab_it = iter(dataloader["unlabeled"])
         return super().train(dataloader, cycle)
+
 
     def batch_forward(self, img, mask, to_onehot_y=False):
         if self.model.training:
@@ -309,6 +312,7 @@ class ConsistencyMGNetTrainer(BaseTrainer):
                 mask = one_hot(mask, self.config["Network"]["classnum"])
             loss = self.criterion(output, mask)
             return output, loss
+
 
     def training(self, dataloader):
         trainloader, unlbloader = dataloader["labeled"], dataloader["unlabeled"]
@@ -348,12 +352,7 @@ class ConsistencyMGNetTrainer(BaseTrainer):
             labeled_output, unlabeled_output = output[:, :imglb_l], output[:, imglb_l:]
 
             # dicece loss for labeled data
-            G, N, C, H, W = labeled_output.shape
-            labeled_mask = onehot_mask[None].repeat_interleave(len(labeled_output), 0)
-            outshape = [G * N, C, H, W]
-            labeled_output = torch.reshape(labeled_output, shape=outshape)
-            labeled_mask = torch.reshape(labeled_mask, shape=outshape)
-            loss_sup = self.criterion(labeled_output, labeled_mask)
+
 
             # different loss for different branch
             # loss_sup = 0
@@ -378,22 +377,22 @@ class ConsistencyMGNetTrainer(BaseTrainer):
 
             if self.config["Training"]["deep_supervision"] is True:
 
-                # for grouped deep supervision
-                deepsup_loss = 0
-                for chunked_pred in mul_pred:
-                    for pred in chunked_pred:
-                        pred, mask = match_prediction_and_gt_shape(pred, onehot_mask, 0)
-                        deepsup_loss += self.criterion(pred[:imglb_l].softmax(1), mask)
-                deepsup_loss = deepsup_loss / len(mul_pred) / len(mul_pred[0])
-                loss += deepsup_loss
-                # for deep supervision
+                # # for grouped deep supervision
                 # deepsup_loss = 0
                 # for chunked_pred in mul_pred:
-                #     pred, mask = match_prediction_and_gt_shape(chunked_pred, onehot_mask, 0)
-                #     deepsup_loss += self.criterion(pred[:imglb_l].softmax(1), mask)
-                #
-                # deepsup_loss = deepsup_loss / len(mul_pred)
+                #     for pred in chunked_pred:
+                #         pred, mask = match_prediction_and_gt_shape(pred, onehot_mask, 0)
+                #         deepsup_loss += self.criterion(pred[:imglb_l].softmax(1), mask)
+                # deepsup_loss = deepsup_loss / len(mul_pred) / len(mul_pred[0])
                 # loss += deepsup_loss
+                # for deep supervision
+                deepsup_loss = 0
+                for chunked_pred in mul_pred:
+                    pred, mask = match_prediction_and_gt_shape(chunked_pred, onehot_mask, 0)
+                    deepsup_loss += self.criterion(pred[:imglb_l].softmax(1), mask)
+
+                deepsup_loss = deepsup_loss / len(mul_pred)
+                loss += deepsup_loss
 
             loss.backward()
             self.optimizer.step()

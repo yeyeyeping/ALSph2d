@@ -372,9 +372,7 @@ class UNetWithURPC(nn.Module):
 
 
 if __name__ == '__main__':
+    import torchsummary
+
     model = UNetWithFeature(1, 2, 16).cuda()
-    data = torch.randn(16, 1, 416, 416).cuda()
-    pred, features = model(data)
-    print(pred.shape)
-    for feature in features:
-        print(feature.shape)
+    print(torchsummary.summary(model, (1, 192, 192)))
